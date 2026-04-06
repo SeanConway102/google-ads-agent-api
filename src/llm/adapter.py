@@ -137,6 +137,8 @@ class MiniMaxProvider(LLMProvider):
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
         self._settings = get_settings()
         self._api_key = api_key or self._settings.MINIMAX_API_KEY
+        if not self._api_key:
+            raise ValueError("MINIMAX_API_KEY is required")
         self._model = model or self._settings.MINIMAX_MODEL
         self._base_url = self._settings.MINIMAX_BASE_URL or self.BASE_URL
 
@@ -175,13 +177,16 @@ class MiniMaxProvider(LLMProvider):
             payload["functions"] = [self._function_to_dict(f) for f in functions]
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                self._build_url(),
-                headers=self._build_headers(),
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+            try:
+                response = await client.post(
+                    self._build_url(),
+                    headers=self._build_headers(),
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"MiniMax API request failed: {exc}") from exc
 
         return self._parse_response(data)
 
@@ -203,20 +208,23 @@ class MiniMaxProvider(LLMProvider):
             payload["max_tokens"] = max_tokens
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream(
-                "POST",
-                self._build_url(),
-                headers=self._build_headers(),
-                json=payload,
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    if line.strip() == "data: [DONE]":
-                        break
-                    chunk_data = line[len("data: "):]
-                    yield self._parse_stream_chunk(chunk_data)
+            try:
+                async with client.stream(
+                    "POST",
+                    self._build_url(),
+                    headers=self._build_headers(),
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        if line.strip() == "data: [DONE]":
+                            break
+                        chunk_data = line[len("data: "):]
+                        yield self._parse_stream_chunk(chunk_data)
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"MiniMax streaming request failed: {exc}") from exc
 
     def _message_to_dict(self, msg: Message) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -237,6 +245,8 @@ class MiniMaxProvider(LLMProvider):
         }
 
     def _parse_response(self, data: dict[str, Any]) -> ChatCompletion:
+        if "id" not in data:
+            raise ValueError("MiniMax API response missing required field: id")
         choices = []
         for choice_data in data.get("choices", []):
             msg_data = choice_data.get("message", {})
@@ -273,8 +283,8 @@ class MiniMaxProvider(LLMProvider):
         import json
         try:
             data = json.loads(line)
-        except json.JSONDecodeError:
-            return StreamChunk(id="", delta="", index=0, finish_reason=None)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Failed to parse stream chunk: {exc!r}") from exc
 
         delta = data.get("choices", [{}])[0].get("delta", "")
         finish = data.get("choices", [{}])[0].get("finish_reason")
