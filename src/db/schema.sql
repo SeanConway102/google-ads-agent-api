@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS wiki_entries (
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
     verified_at     TIMESTAMPTZ,                   -- last re-validated by time-decay challenge
-    invalidated_at  TIMESTAMPTZ                    -- contradicted by new research
+    invalidated_at  TIMESTAMPTZ,                  -- contradicted by new research
+    invalidation_reason VARCHAR(512)               -- why it was invalidated
 );
 
 -- Full-text search vector — generated column for embeddingless RAG

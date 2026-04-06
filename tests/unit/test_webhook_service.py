@@ -35,28 +35,35 @@ class TestDeliverWebhook:
 
     @pytest.mark.asyncio
     async def test_deliver_webhook_success_returns_true(self):
-        """A 2xx response means delivery succeeded."""
+        """A 2xx response means delivery succeeded and HMAC signature is sent."""
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.__aenter__.return_value = mock_response
-            mock_response.__aexit__.return_value = None
-            mock_response.post.return_value = mock_response
 
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_cls.return_value = mock_client
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
 
+            secret = "my_hmac_secret"
             result = await deliver_webhook(
                 url="https://example.com/webhook",
                 event_type="consensus_reached",
                 payload={"campaign_id": "cmp_001"},
-                secret="secret",
+                secret=secret,
             )
 
             assert result is True
+            # Verify HMAC signature header was included
+            call_args = mock_client.post.call_args
+            assert "X-Webhook-Signature" in call_args.kwargs["headers"]
+            # Verify the signature is correct HMAC-SHA256
+            body = call_args.kwargs["content"]
+            expected_sig = hmac.new(
+                secret.encode("utf-8"),
+                body.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            assert call_args.kwargs["headers"]["X-Webhook-Signature"] == expected_sig
 
     @pytest.mark.asyncio
     async def test_deliver_webhook_retries_on_failure(self):

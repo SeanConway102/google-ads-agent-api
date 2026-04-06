@@ -111,11 +111,14 @@ class PostgresAdapter(DatabaseAdapter):
         Full-text search using PostgreSQL tsvector.
         Embeddingless RAG: uses ts_rank for relevance scoring instead of vector similarity.
         """
-        # Convert natural language query to tsquery format
-        # Replace spaces with & for AND matching
-        tsquery_parts = " & ".join(query.split())
+        # Strip tsquery metacharacters to prevent syntax errors and DoS.
+        # Keep only alphanumeric and spaces.
+        safe_parts = "".join(c if c.isalnum() or c.isspace() else " " for c in query).split()
+        tsquery_parts = " & ".join(p for p in safe_parts if p)
+        if not tsquery_parts:
+            return []
         return self.fetch_all(
-            """SELECT id, title, slug,
+            """SELECT *,
                       ts_rank(search_vector, query) AS rank
                FROM wiki_entries,
                     to_tsquery('english', %s) AS query
@@ -153,8 +156,8 @@ class PostgresAdapter(DatabaseAdapter):
 
     def invalidate_wiki_entry(self, id: UUID, reason: str) -> None:
         self.execute(
-            "UPDATE wiki_entries SET invalidated_at = NOW() WHERE id = %s",
-            (str(id),)
+            "UPDATE wiki_entries SET invalidated_at = NOW(), invalidation_reason = %s WHERE id = %s",
+            (reason, str(id)),
         )
 
     # ─── Debate state ─────────────────────────────────────────────────────────

@@ -95,7 +95,6 @@ class TestCreateWikiEntry:
                 "title": "Keyword Research",
                 "slug": "keyword-research",
                 "content": "Research on keywords...",
-                "api_key_token": "tok_abc",
             },
         )
 

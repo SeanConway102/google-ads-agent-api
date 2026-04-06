@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -117,6 +117,7 @@ class WikiEntryResponse(BaseModel):
     updated_at: datetime
     verified_at: Optional[datetime]
     invalidated_at: Optional[datetime]
+    invalidation_reason: Optional[str]
 
 
 class WikiSearchResponse(BaseModel):
@@ -186,6 +187,13 @@ class WebhookRegister(BaseModel):
     url: str = Field(..., description="HTTPS endpoint URL")
     events: List[WebhookEvent] = Field(..., description="Event types to subscribe to")
     secret: Optional[str] = Field(default=None, description="HMAC secret for signing payloads")
+
+    @field_validator("url")
+    @classmethod
+    def url_must_be_https(cls, v: str) -> str:
+        if not v.startswith("https://"):
+            raise ValueError("url must use HTTPS")
+        return v
 
 
 class WebhookResponse(BaseModel):

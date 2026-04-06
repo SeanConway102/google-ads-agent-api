@@ -36,6 +36,7 @@ def _entry_to_response(row: dict) -> WikiEntryResponse:
         updated_at=row["updated_at"],
         verified_at=row.get("verified_at"),
         invalidated_at=row.get("invalidated_at"),
+        invalidation_reason=row.get("invalidation_reason"),
     )
 
 
