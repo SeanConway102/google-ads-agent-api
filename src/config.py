@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     GOOGLE_ADS_DEVELOPER_TOKEN: str = ""
     GOOGLE_ADS_CLIENT_ID: str = ""
     GOOGLE_ADS_CLIENT_SECRET: str = ""
+    GOOGLE_ADS_REFRESH_TOKEN: str = ""
+    GOOGLE_ADS_CUSTOMER_ID: str = ""
 
     # ─── LLM ─────────────────────────────────────────────────────────────────
     LLM_PROVIDER: Literal["minimax", "openai", "anthropic"] = "minimax"
