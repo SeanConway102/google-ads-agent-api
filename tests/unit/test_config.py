@@ -26,7 +26,8 @@ class TestConfigLoading:
         import src.config as cfg
         reload(cfg)
 
-        assert cfg.settings.ADMIN_API_KEY == "my-secret-key-123", \
+        settings = cfg.get_settings()
+        assert settings.ADMIN_API_KEY == "my-secret-key-123", \
             "ADMIN_API_KEY should be loaded from environment"
 
     def test_settings_loads_database_url_with_defaults(self, monkeypatch):
@@ -42,9 +43,10 @@ class TestConfigLoading:
         import src.config as cfg
         reload(cfg)
 
-        assert "postgresql" in cfg.settings.DATABASE_URL, \
+        settings = cfg.get_settings()
+        assert "postgresql" in settings.DATABASE_URL, \
             "DATABASE_URL should default to PostgreSQL"
-        assert "localhost" in cfg.settings.DATABASE_URL, \
+        assert "localhost" in settings.DATABASE_URL, \
             "Default DATABASE_URL should point to localhost"
 
     def test_settings_loads_minimax_config(self, monkeypatch):
@@ -57,9 +59,10 @@ class TestConfigLoading:
         import src.config as cfg
         reload(cfg)
 
-        assert cfg.settings.MINIMAX_API_KEY == "minimax-abc123"
-        assert cfg.settings.MINIMAX_BASE_URL == "https://custom.minimax.io"
-        assert cfg.settings.MINIMAX_MODEL == "MiniMax-Text-01"
+        settings = cfg.get_settings()
+        assert settings.MINIMAX_API_KEY == "minimax-abc123"
+        assert settings.MINIMAX_BASE_URL == "https://custom.minimax.io"
+        assert settings.MINIMAX_MODEL == "MiniMax-Text-01"
 
     def test_settings_has_correct_defaults(self, monkeypatch):
         """Non-critical settings have sensible defaults when not explicitly set."""
@@ -71,11 +74,12 @@ class TestConfigLoading:
         import src.config as cfg
         reload(cfg)
 
-        assert cfg.settings.MAX_DEBATE_ROUNDS == 5, \
+        settings = cfg.get_settings()
+        assert settings.MAX_DEBATE_ROUNDS == 5, \
             "MAX_DEBATE_ROUNDS should default to 5"
-        assert cfg.settings.RESEARCH_CRON == "0 8 * * *", \
+        assert settings.RESEARCH_CRON == "0 8 * * *", \
             "RESEARCH_CRON should default to 8am daily"
-        assert cfg.settings.DB_PROVIDER == "postgresql", \
+        assert settings.DB_PROVIDER == "postgresql", \
             "DB_PROVIDER should default to postgresql"
 
     def test_settings_ignores_extra_env_vars(self, monkeypatch):
@@ -91,10 +95,11 @@ class TestConfigLoading:
         import src.config as cfg
         reload(cfg)
 
+        settings = cfg.get_settings()
         # Should not raise — extra vars should be silently ignored
-        assert hasattr(cfg.settings, "ADMIN_API_KEY")
+        assert hasattr(settings, "ADMIN_API_KEY")
         # SUPER_EXTRA_UNKNOWN_VAR should not appear in settings
-        assert not hasattr(cfg.settings, "SUPER_EXTRA_UNKNOWN_VAR")
+        assert not hasattr(settings, "SUPER_EXTRA_UNKNOWN_VAR")
 
 
 class TestConfigValidation:

@@ -2,6 +2,7 @@
 Configuration loading and validation.
 Mirrors ClientApp's env-var-driven config pattern (tests/support/config.js).
 """
+from functools import lru_cache
 from typing import Literal
 from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
@@ -53,5 +54,21 @@ class Settings(BaseSettings):
     MAX_DEBATE_ROUNDS: int = 5
 
 
-# Singleton settings instance — import this in all modules
-settings = Settings()
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """
+    Lazily create and cache the Settings singleton.
+    Call this function to get settings — avoids crashing on module import
+    before test env vars are set.
+    """
+    return Settings()
+
+
+def get_database_url() -> str:
+    """Get DATABASE_URL from settings. Lazily initializes settings."""
+    return get_settings().DATABASE_URL
+
+
+def get_admin_api_key() -> str:
+    """Get ADMIN_API_KEY from settings. Lazily initializes settings."""
+    return get_settings().ADMIN_API_KEY
