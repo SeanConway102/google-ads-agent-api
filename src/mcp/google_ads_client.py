@@ -4,20 +4,15 @@ Google Ads API client — typed wrapper around google-ads-py.
 Provides a clean, typed interface for the operations permitted by CapabilityGuard.
 All methods verify capabilities before making API calls.
 """
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
-from typing import Any, Optional
-from uuid import UUID
+from dataclasses import dataclass
+from datetime import date
+from typing import Any
 
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.v17.services.services.campaign_service import CampaignServiceClient
-from google.ads.googleads.v17.services.services.keyword_plan_service import KeywordPlanServiceClient
 from google.ads.googleads.v17.services.types.campaign_service import (
     ListCampaignsRequest,
     GetCampaignRequest,
-)
-from google.ads.googleads.v17.services.types.keyword_plan_service import (
-    GenerateKeywordIdeasRequest,
 )
 from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
 
@@ -130,7 +125,10 @@ class GoogleAdsClient:
                     status=str(campaign.status),
                     campaign_type=str(campaign.advertising_channel_type),
                     customer_id=customer_id,
-                    budget_amount_micros=campaign.manual_cpc.enhanced_cpc.cpc_bid_micros,
+                    budget_amount_micros=(
+                        campaign.manual_cpc.enhanced_cpc.cpc_bid_micros
+                        if campaign.manual_cpc else 0
+                    ),
                     start_date=campaign.start_date or None,
                     end_date=campaign.end_date or None,
                 ))
@@ -156,7 +154,10 @@ class GoogleAdsClient:
                 status=str(campaign.status),
                 campaign_type=str(campaign.advertising_channel_type),
                 customer_id=customer_id,
-                budget_amount_micros=campaign.manual_cpc.enhanced_cpc.cpc_bid_micros,
+                budget_amount_micros=(
+                    campaign.manual_cpc.enhanced_cpc.cpc_bid_micros
+                    if campaign.manual_cpc else 0
+                ),
                 start_date=campaign.start_date or None,
                 end_date=campaign.end_date or None,
             )
@@ -174,9 +175,17 @@ class GoogleAdsClient:
         Get performance metrics for a campaign over a date range.
         Requires: google_ads.get_performance_report
         """
+        # Validate campaign_id is numeric — prevents SQL injection in GAQL query
+        if not campaign_id.isdigit():
+            raise GoogleAdsClientError(
+                f"Invalid campaign_id {campaign_id!r}: must be numeric"
+            )
+
         def _call() -> PerformanceReport:
             client = self._get_client()
             service = client.get_service("GoogleAdsService")
+            # campaign_id is validated above; start_date/end_date are date objects
+            # whose isoformat() always produces safe YYYY-MM-DD format
             query = f"""
                 SELECT
                     campaign.id,
@@ -281,7 +290,6 @@ class GoogleAdsClient:
             response = service.mutate_campaigns(customer_id=customer_id, operations=[operation])
             return len(response.results) > 0
 
-        self._guard.require_write_permission("google_ads.update_campaign_status")
         return self._call("google_ads.update_campaign_status", _call)
 
     def add_keywords(
