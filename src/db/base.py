@@ -121,6 +121,20 @@ class DatabaseAdapter(ABC):
         """
         pass
 
+    @abstractmethod
+    def query_audit_log(
+        self,
+        campaign_id: Optional[UUID] = None,
+        action_type: Optional[str] = None,
+        cycle_date: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[dict]:
+        """
+        Query audit log entries with optional filters.
+        Returns entries ordered by performed_at DESC.
+        """
+        pass
+
     # ─── Webhooks ─────────────────────────────────────────────────────────────
 
     @abstractmethod

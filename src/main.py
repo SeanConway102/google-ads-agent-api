@@ -12,7 +12,7 @@ from src.api.middleware import (
     setup_cors,
     setup_exception_handlers,
 )
-from src.api.routes import campaigns
+from src.api.routes import audit, campaigns, webhooks, wiki
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +43,9 @@ def create_app() -> FastAPI:
 
     # Routes
     app.include_router(campaigns.router)
+    app.include_router(wiki.router)
+    app.include_router(webhooks.router)
+    app.include_router(audit.router)
 
     @app.get("/health", tags=["health"])
     def health():

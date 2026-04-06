@@ -218,6 +218,36 @@ class PostgresAdapter(DatabaseAdapter):
             ),
         )
 
+    def query_audit_log(
+        self,
+        campaign_id: Optional[UUID] = None,
+        action_type: Optional[str] = None,
+        cycle_date: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[dict]:
+        """
+        Query audit log with optional filters.
+        Builds a WHERE clause dynamically to avoid unused parameter binding issues.
+        """
+        conditions = []
+        params: list[Any] = []
+
+        if campaign_id is not None:
+            conditions.append("campaign_id = %s")
+            params.append(str(campaign_id))
+        if action_type is not None:
+            conditions.append("action_type = %s")
+            params.append(action_type)
+        if cycle_date is not None:
+            conditions.append("cycle_date = %s")
+            params.append(cycle_date)
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        query = f"SELECT * FROM audit_log WHERE {where_clause} ORDER BY performed_at DESC LIMIT %s"
+        params.append(limit)
+
+        return self.fetch_all(query, tuple(params))
+
     # ─── Webhooks ─────────────────────────────────────────────────────────────
 
     def register_webhook(self, data: dict) -> dict:
