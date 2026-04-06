@@ -139,7 +139,7 @@ class DebateStateMachine:
     def evaluate_consensus(
         self,
         state: DebateState,
-        coordinator_decision: dict[str, Any],
+        coordinator_decision: Optional[dict[str, Any]],
     ) -> DebateState:
         """
         Process the Coordinator's decision and transition the state accordingly.
@@ -150,6 +150,8 @@ class DebateStateMachine:
           escalate      -> PENDING_MANUAL_REVIEW
           continue_debate -> GREEN_PROPOSES, round_number += 1
         """
+        if coordinator_decision is None:
+            coordinator_decision = {"verdict": "continue_debate"}
         state.coordinator_decision = coordinator_decision
         verdict = coordinator_decision.get("verdict", "continue_debate")
 

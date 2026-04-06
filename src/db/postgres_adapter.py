@@ -169,16 +169,19 @@ class PostgresAdapter(DatabaseAdapter):
         return self.execute_returning(
             """INSERT INTO debate_state
                (cycle_date, campaign_id, phase, round_number,
-                green_proposals, red_objections, coordinator_decision, consensus_reached)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                green_proposals, red_objections, coordinator_decision,
+                consensus_reached, compromise_accepted_by_green, compromise_accepted_by_red)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (cycle_date, campaign_id) DO UPDATE SET
-                 phase          = EXCLUDED.phase,
-                 round_number   = EXCLUDED.round_number,
-                 green_proposals   = EXCLUDED.green_proposals,
-                 red_objections    = EXCLUDED.red_objections,
-                 coordinator_decision = EXCLUDED.coordinator_decision,
-                 consensus_reached = EXCLUDED.consensus_reached,
-                 updated_at     = NOW()
+                 phase                     = EXCLUDED.phase,
+                 round_number              = EXCLUDED.round_number,
+                 green_proposals          = EXCLUDED.green_proposals,
+                 red_objections           = EXCLUDED.red_objections,
+                 coordinator_decision     = EXCLUDED.coordinator_decision,
+                 consensus_reached        = EXCLUDED.consensus_reached,
+                 compromise_accepted_by_green = EXCLUDED.compromise_accepted_by_green,
+                 compromise_accepted_by_red   = EXCLUDED.compromise_accepted_by_red,
+                 updated_at               = NOW()
                RETURNING *""",
             (
                 data["cycle_date"],
@@ -189,6 +192,8 @@ class PostgresAdapter(DatabaseAdapter):
                 self._jsonb(data.get("red_objections", [])),
                 self._jsonb(data.get("coordinator_decision")),
                 data.get("consensus_reached", False),
+                data.get("compromise_accepted_by_green", False),
+                data.get("compromise_accepted_by_red", False),
             ),
         )
 

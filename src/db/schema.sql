@@ -117,6 +117,10 @@ CREATE TABLE IF NOT EXISTS debate_state (
     -- Consensus flag
     consensus_reached        BOOLEAN DEFAULT FALSE,
 
+    -- Compromise ratification (set when both teams accept a compromise)
+    compromise_accepted_by_green BOOLEAN DEFAULT FALSE,
+    compromise_accepted_by_red   BOOLEAN DEFAULT FALSE,
+
     -- Timestamps
     created_at              TIMESTAMPTZ DEFAULT NOW(),
     updated_at              TIMESTAMPTZ DEFAULT NOW(),
