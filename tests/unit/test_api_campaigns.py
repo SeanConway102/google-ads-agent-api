@@ -180,10 +180,24 @@ class TestGetCampaign:
 class TestDeleteCampaign:
 
     def test_delete_campaign_returns_204(self, client, mock_adapter):
-        """DELETE /campaigns/{id} returns 204 even if campaign doesn't exist."""
+        """DELETE /campaigns/{id} returns 204 when campaign exists."""
         campaign_id = uuid.uuid4()
+        row = make_campaign_row()
+        row["id"] = campaign_id
+        mock_adapter.get_campaign.return_value = row
 
         response = client.delete(f"/campaigns/{campaign_id}")
 
         assert response.status_code == 204
         mock_adapter.delete_campaign.assert_called_once()
+
+    def test_delete_campaign_not_found_returns_404(self, client, mock_adapter):
+        """DELETE /campaigns/{id} returns 404 when campaign does not exist."""
+        mock_adapter.get_campaign.return_value = None
+        unknown_id = uuid.uuid4()
+
+        response = client.delete(f"/campaigns/{unknown_id}")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Campaign not found"
+        mock_adapter.delete_campaign.assert_not_called()

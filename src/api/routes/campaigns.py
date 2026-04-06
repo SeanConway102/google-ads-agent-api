@@ -6,7 +6,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, status
 
-from src.api.schemas import CampaignCreate, CampaignListResponse, CampaignResponse, CampaignStatus
+from src.api.schemas import (
+    CampaignCreate,
+    CampaignListResponse,
+    CampaignResponse,
+    CampaignStatus,
+)
 from src.db.postgres_adapter import PostgresAdapter
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
@@ -18,12 +23,19 @@ def _adapter() -> PostgresAdapter:
 
 def _campaign_to_response(row: dict) -> CampaignResponse:
     """Convert a DB row dict to a CampaignResponse Pydantic model."""
+    try:
+        campaign_status = CampaignStatus(row["status"])
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Campaign has unknown status: {row['status']!r}",
+        )
     return CampaignResponse(
         id=row["id"],
         campaign_id=row["campaign_id"],
         customer_id=row["customer_id"],
         name=row["name"],
-        status=CampaignStatus(row["status"]),
+        status=campaign_status,
         campaign_type=row["campaign_type"],
         owner_tag=row.get("owner_tag"),
         created_at=row["created_at"],
@@ -48,9 +60,15 @@ def create_campaign(body: CampaignCreate) -> CampaignResponse:
     try:
         row = _adapter().create_campaign(body.model_dump())
     except Exception as exc:
+        error_msg = str(exc)
+        if "UNIQUE constraint" in error_msg or "duplicate key" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Campaign with ID {body.campaign_id!r} already exists",
+            ) from exc
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Campaign with ID {body.campaign_id!r} already exists",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error while creating campaign",
         ) from exc
     return _campaign_to_response(row)
 
@@ -66,5 +84,8 @@ def get_campaign(campaign_id: Annotated[UUID, Path(description="Campaign UUID")]
 
 @router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_campaign(campaign_id: Annotated[UUID, Path(description="Campaign UUID")]) -> None:
-    """Delete a campaign by its UUID. Returns 204 even if not found."""
+    """Delete a campaign by its UUID. Returns 204 if deleted, 404 if not found."""
+    row = _adapter().get_campaign(campaign_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
     _adapter().delete_campaign(campaign_id)

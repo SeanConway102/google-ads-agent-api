@@ -196,11 +196,14 @@ def _json_error(
 # ──────────────────────────────────────────────────────────────────────────────
 
 def setup_cors(app: FastAPI) -> None:
-    """Configure CORS headers for browser-based API clients."""
+    """
+    Configure CORS headers for browser-based API clients.
+    Note: allow_credentials is not set — this API uses API-key auth,
+    not browser cookie/session credentials, so wildcard origin is safe.
+    """
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Restrict to specific origins in production
-        allow_credentials=True,
+        allow_origins=["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
