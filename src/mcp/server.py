@@ -165,6 +165,30 @@ TOOLS: list[dict[str, Any]] = [
 
 # ─── Tool handlers ─────────────────────────────────────────────────────────────
 
+import re
+_CUSTOMER_ID_PATTERN = re.compile(r"^\d{3}-\d{3}-\d{4}$|^\d{10}$")
+
+
+def _validate_customer_id(customer_id: str) -> None:
+    """Validate Google Ads customer ID format (XXX-XXX-XXXX or XXXXXXXXXX)."""
+    if not _CUSTOMER_ID_PATTERN.match(customer_id):
+        raise ValueError(
+            f"Invalid customer_id {customer_id!r}: "
+            f"expected format XXX-XXX-XXXX or XXXXXXXXXX"
+        )
+
+
+def _validate_date(date_str: str) -> None:
+    """Validate and parse a YYYY-MM-DD date string."""
+    from datetime import date
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        raise ValueError(
+            f"Invalid date {date_str!r}: expected YYYY-MM-DD format"
+        )
+
+
 def _make_client() -> GoogleAdsClient:
     """Create a Google Ads client with default capability guard."""
     guard = CapabilityGuard()
@@ -173,6 +197,7 @@ def _make_client() -> GoogleAdsClient:
 
 def handle_list_campaigns(args: dict) -> dict[str, Any]:
     customer_id: str = args["customer_id"]
+    _validate_customer_id(customer_id)
     client = _make_client()
     campaigns = client.list_campaigns(customer_id)
     return {
@@ -193,6 +218,7 @@ def handle_list_campaigns(args: dict) -> dict[str, Any]:
 def handle_get_campaign(args: dict) -> dict[str, Any]:
     customer_id: str = args["customer_id"]
     campaign_id: str = args["campaign_id"]
+    _validate_customer_id(customer_id)
     client = _make_client()
     campaign = client.get_campaign(customer_id, campaign_id)
     return {
@@ -210,6 +236,9 @@ def handle_get_performance_report(args: dict) -> dict[str, Any]:
     from datetime import date
     customer_id: str = args["customer_id"]
     campaign_id: str = args["campaign_id"]
+    _validate_customer_id(customer_id)
+    _validate_date(args["start_date"])
+    _validate_date(args["end_date"])
     start_date = date.fromisoformat(args["start_date"])
     end_date = date.fromisoformat(args["end_date"])
     client = _make_client()
@@ -230,6 +259,7 @@ def handle_update_campaign_budget(args: dict) -> dict[str, Any]:
     customer_id: str = args["customer_id"]
     campaign_id: str = args["campaign_id"]
     budget_amount_micros: int = args["budget_amount_micros"]
+    _validate_customer_id(customer_id)
     client = _make_client()
     success = client.update_campaign_budget(customer_id, campaign_id, budget_amount_micros)
     return {"success": success, "campaign_id": campaign_id, "budget_micros": budget_amount_micros}
@@ -239,6 +269,7 @@ def handle_update_campaign_status(args: dict) -> dict[str, Any]:
     customer_id: str = args["customer_id"]
     campaign_id: str = args["campaign_id"]
     status: str = args["status"]
+    _validate_customer_id(customer_id)
     client = _make_client()
     success = client.update_campaign_status(customer_id, campaign_id, status)
     return {"success": success, "campaign_id": campaign_id, "status": status}
@@ -248,6 +279,7 @@ def handle_add_keywords(args: dict) -> dict[str, Any]:
     customer_id: str = args["customer_id"]
     ad_group_id: str = args["ad_group_id"]
     keywords: list[str] = args["keywords"]
+    _validate_customer_id(customer_id)
     client = _make_client()
     resource_names = client.add_keywords(customer_id, ad_group_id, keywords)
     return {"ad_group_id": ad_group_id, "keywords_added": len(resource_names), "resource_names": resource_names}
@@ -295,6 +327,13 @@ def handle_call_tool(name: str, arguments: dict) -> dict[str, Any]:
         logger.error("tool_google_ads_error", extra={"tool": name, "error": str(exc)})
         return {
             "error": f"Google Ads API error: {exc}",
+            "is_error": True,
+        }
+    except ValueError as exc:
+        # Validation errors (customer_id format, date format) — return as validation error
+        logger.warning("tool_validation_error", extra={"tool": name, "error": str(exc)})
+        return {
+            "error": f"Validation error: {exc}",
             "is_error": True,
         }
     except Exception as exc:

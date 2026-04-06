@@ -41,14 +41,15 @@ class TestHandleCallTool:
         assert "Unknown tool" in result["error"]
 
     def test_capability_denied_returns_error(self):
-        """When capability guard denies an operation, return an error response."""
+        """When capability guard denies an operation, return a structured error response."""
+        from src.mcp.capability_guard import CapabilityDenied
         with patch("src.mcp.server._make_client") as mock_make:
             mock_client = MagicMock()
-            mock_client.list_campaigns.side_effect = Exception("capability denied")
+            mock_client.list_campaigns.side_effect = CapabilityDenied("google_ads.list_campaigns", "test deny")
             mock_make.return_value = mock_client
-            result = handle_call_tool("google_ads_list_campaigns", {"customer_id": "123"})
-            # The error is caught at the outer handler level
-            assert result.get("is_error") or "error" in result
+            result = handle_call_tool("google_ads_list_campaigns", {"customer_id": "123-456-7890"})
+            assert result.get("is_error") is True
+            assert "capability denied" in result["error"].lower()
 
     def test_google_ads_client_error_returns_error(self):
         """GoogleAdsClientError is caught and returned as error response."""

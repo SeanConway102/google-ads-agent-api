@@ -3,18 +3,13 @@ Google Ads API client — typed wrapper around google-ads-py.
 
 Provides a clean, typed interface for the operations permitted by CapabilityGuard.
 All methods verify capabilities before making API calls.
+
+Note: google-ads library imports are lazy (inside methods) so this module can be
+imported and tested without the library installed.
 """
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
-
-from google.ads.googleads.client import GoogleAdsClient
-from google.ads.googleads.v17.services.services.campaign_service import CampaignServiceClient
-from google.ads.googleads.v17.services.types.campaign_service import (
-    ListCampaignsRequest,
-    GetCampaignRequest,
-)
-from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
 
 from src.config import get_settings
 from src.mcp.capability_guard import CapabilityGuard, CapabilityDenied
@@ -62,14 +57,6 @@ class GoogleAdsClientError(Exception):
     pass
 
 
-class GoogleAdsAPIError(GoogleAdsClientError):
-    """Raised when the Google Ads API returns an error."""
-    def __init__(self, error_code: int, message: str):
-        self.error_code = error_code
-        self.message = message
-        super().__init__(f"Google Ads API error {error_code}: {message}")
-
-
 class GoogleAdsClient:
     """
     Typed Google Ads API client with capability enforcement.
@@ -83,14 +70,15 @@ class GoogleAdsClient:
         guard: CapabilityGuard | None = None,
         customer_id: str | None = None,
     ) -> None:
-        self._settings = get_settings()
         self._guard = guard or CapabilityGuard()
         self._customer_id = customer_id or ""
-        self._client: GoogleAdsClient | None = None
+        self._client: Any = None  # Lazy-initialized google-ads client instance
 
-    def _get_client(self) -> GoogleAdsClient:
+    def _get_client(self) -> Any:
         """Lazily initialize the google-ads client."""
         if self._client is None:
+            # Lazy import — only fails at runtime if google-ads is not installed
+            from google.ads.googleads.client import GoogleAdsClient
             self._client = GoogleAdsClient.load_from_env()
         return self._client
 
@@ -112,6 +100,8 @@ class GoogleAdsClient:
         Requires: google_ads.list_campaigns
         """
         def _call() -> list[Campaign]:
+            from google.ads.googleads.v17.services.services.campaign_service import CampaignServiceClient
+            from google.ads.googleads.v17.services.types.campaign_service import ListCampaignsRequest
             client = self._get_client()
             service: CampaignServiceClient = client.get_service("CampaignService")
             request = ListCampaignsRequest(customer_id=customer_id)
@@ -142,9 +132,10 @@ class GoogleAdsClient:
         Requires: google_ads.get_campaign
         """
         def _call() -> Campaign:
+            from google.ads.googleads.v17.services.services.campaign_service import CampaignServiceClient
+            from google.ads.googleads.v17.services.types.campaign_service import GetCampaignRequest
             client = self._get_client()
             service: CampaignServiceClient = client.get_service("CampaignService")
-            resource_name = service.campaign_path(customer_id, campaign_id)
             request = GetCampaignRequest(customer_id=customer_id, campaign_id=campaign_id)
             response = service.get_campaign(request=request)
             campaign = response.campaign
@@ -182,6 +173,7 @@ class GoogleAdsClient:
             )
 
         def _call() -> PerformanceReport:
+            from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
             client = self._get_client()
             service = client.get_service("GoogleAdsService")
             # campaign_id is validated above; start_date/end_date are date objects
@@ -257,6 +249,7 @@ class GoogleAdsClient:
         Requires: google_ads.update_campaign_budget
         """
         def _call() -> bool:
+            from google.ads.googleads.v17.services.services.campaign_service import CampaignServiceClient
             client = self._get_client()
             service: CampaignServiceClient = client.get_service("CampaignService")
             resource_name = service.campaign_path(customer_id, campaign_id)
@@ -273,13 +266,14 @@ class GoogleAdsClient:
         self,
         customer_id: str,
         campaign_id: str,
-        status: str,  # "ENABLED", "PAUSED", "REMOVED"
+        status: str,
     ) -> bool:
         """
         Update a campaign's status (pause/resume).
         Requires: google_ads.update_campaign_status
         """
         def _call() -> bool:
+            from google.ads.googleads.v17.services.services.campaign_service import CampaignServiceClient
             client = self._get_client()
             service: CampaignServiceClient = client.get_service("CampaignService")
             resource_name = service.campaign_path(customer_id, campaign_id)
