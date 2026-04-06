@@ -1,0 +1,34 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.minimax.io/anthropic",
+    "ANTHROPIC_AUTH_TOKEN": "sk-cp-N3YtSRxGkBB_ztzQta1L45PkiENLDwqtZMRAznRygq5K4lph9zE55_fkHXuDQKR1drcjEsaPqday7DCUAzzT5TH73NAJTeCFvGuCLG6X6l6XWlkCRnmTp4Q",
+    "API_TIMEOUT_MS": "3000000",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "ANTHROPIC_MODEL": "MiniMax-M2.7",
+    "ANTHROPIC_SMALL_FAST_MODEL": "MiniMax-M2.7",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "MiniMax-M2.7",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "MiniMax-M2.7",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "MiniMax-M2.7"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm view:*)",
+      "mcp__knowledgebase__search_kb",
+      "mcp__knowledgebase__list_kb_nodes",
+      "Bash(gh repo:*)",
+      "Bash(gh api:*)",
+      "Bash(for repo:*)",
+      "Bash(npx tsx:*)",
+      "Bash(SITE_URL=https://aagutterseamless.com pnpm dlx playwright test .claude/scripts/smoke-test.spec.ts --config .claude/scripts/smoke-test.config.ts)",
+      "Bash(go test:*)",
+      "Bash(node -e ':*)",
+      "Bash(go mod:*)",
+      "Bash(go vet:*)",
+      "Bash(go build:*)",
+      "Bash(swag init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm test:*)"
+    ]
+  }
+}
