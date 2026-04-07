@@ -136,7 +136,10 @@ class MiniMaxProvider(LLMProvider):
 
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
         self._settings = get_settings()
-        self._api_key = api_key or self._settings.MINIMAX_API_KEY
+        if api_key is not None:
+            self._api_key = api_key
+        else:
+            self._api_key = self._settings.MINIMAX_API_KEY
         if not self._api_key:
             raise ValueError("MINIMAX_API_KEY is required")
         self._model = model or self._settings.MINIMAX_MODEL
