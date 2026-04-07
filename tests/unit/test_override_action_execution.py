@@ -128,6 +128,36 @@ class TestOverrideBidUpdateExecution:
         call_kwargs = mock_gads.update_keyword_bids.call_args
         assert call_kwargs.kwargs.get("customer_id") == "cust_001"
 
+    def test_override_bid_update_with_updates_uses_explicit_values(
+        self, mock_adapter, client, mock_gads_and_guard
+    ):
+        """
+        bid_update override must use the explicit updates format (matching green
+        team proposals) — updates field carries [{resource_name, cpc_bid_micros}].
+        This is the same format the coordinator outputs and approve action uses.
+        """
+        mock_guard, mock_gads = mock_gads_and_guard
+        campaign_uuid = mock_adapter.get_campaign.return_value["id"]
+
+        response = client.post(
+            f"/campaigns/{campaign_uuid}/override",
+            json={
+                "action_type": "bid_update",
+                "updates": [
+                    {"resource_name": "customers/cust/campaigns/cmp_001/adGroupAds/ag_001/criteria/kw1", "cpc_bid_micros": 115000},
+                ],
+            },
+        )
+
+        assert response.status_code == 200
+        mock_gads.update_keyword_bids.assert_called_once()
+
+        # Verify updates format: [{resource_name, cpc_bid_micros}]
+        updates = mock_gads.update_keyword_bids.call_args.kwargs.get("updates", [])
+        assert len(updates) == 1
+        assert updates[0]["resource_name"] == "customers/cust/campaigns/cmp_001/adGroupAds/ag_001/criteria/kw1"
+        assert updates[0]["cpc_bid_micros"] == 115000
+
 
 class TestOverrideMatchTypeUpdateExecution:
     """override_campaign_action must call gads_client.update_keyword_match_types for match_type_update."""
@@ -137,7 +167,7 @@ class TestOverrideMatchTypeUpdateExecution:
     ):
         """
         For action_type=match_type_update, the override action must call
-        gads_client.update_keyword_match_types(), not just check the guard.
+        gads_client.update_keyword_match_types() with explicit updates format.
         """
         mock_guard, mock_gads = mock_gads_and_guard
         campaign_uuid = mock_adapter.get_campaign.return_value["id"]
@@ -146,11 +176,17 @@ class TestOverrideMatchTypeUpdateExecution:
             f"/campaigns/{campaign_uuid}/override",
             json={
                 "action_type": "match_type_update",
-                "bid_adjustment": 0.10,
+                "updates": [
+                    {"resource_name": "customers/cust/campaigns/cmp_001/adGroupAds/ag_001/criteria/kw1", "match_type": "PHRASE"},
+                ],
             },
         )
 
         assert response.status_code == 200
 
-        # Must call update_keyword_match_types on the GoogleAdsClient
+        # Must call update_keyword_match_types with correctly-formatted updates
         mock_gads.update_keyword_match_types.assert_called_once()
+        updates = mock_gads.update_keyword_match_types.call_args.kwargs.get("updates", [])
+        assert len(updates) == 1
+        assert updates[0]["resource_name"] == "customers/cust/campaigns/cmp_001/adGroupAds/ag_001/criteria/kw1"
+        assert updates[0]["match_type"] == "PHRASE"

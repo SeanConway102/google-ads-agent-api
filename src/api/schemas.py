@@ -109,8 +109,9 @@ class CampaignInsights(BaseModel):
 class ActionPayload(BaseModel):
     """Request body for POST /campaigns/{uuid}/override."""
     action_type: str = Field(..., min_length=1, description="Action type e.g. keyword_add, keyword_remove")
-    keywords: Optional[List[str]] = Field(default=None, description="Keywords for keyword actions")
-    bid_adjustment: Optional[float] = Field(default=None, description="Bid adjustment value")
+    keywords: Optional[List[str]] = Field(default=None, description="Keywords for keyword_add and keyword_remove")
+    updates: Optional[List[dict]] = Field(default=None, description="Bid/match-type updates as [{resource_name, cpc_bid_micros}] or [{resource_name, match_type}]")
+    bid_adjustment: Optional[float] = Field(default=None, description="Bid adjustment value (deprecated — use updates instead)")
     ad_group_id: Optional[str] = Field(default=None, description="Ad group ID target")
 
 

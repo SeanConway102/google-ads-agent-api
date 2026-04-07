@@ -293,13 +293,13 @@ def override_campaign_action(
             guard.check("google_ads.update_keyword_bids")
             gads_client.update_keyword_bids(
                 customer_id=row["customer_id"],
-                updates=body.keywords or [],  # [{resource_name, cpc_bid_micros}]
+                updates=body.updates or [],
             )
         elif body.action_type == "match_type_update":
             guard.check("google_ads.update_keyword_match_types")
             gads_client.update_keyword_match_types(
                 customer_id=row["customer_id"],
-                updates=body.keywords or [],  # [{resource_name, match_type}]
+                updates=body.updates or [],
             )
         else:
             guard.check(f"google_ads.{body.action_type}")
