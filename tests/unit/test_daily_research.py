@@ -3,7 +3,7 @@ RED: Failing tests for daily_research cron script.
 Tests the full daily research cycle orchestration.
 """
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from src.agents.debate_state import DebateState, Phase
@@ -22,10 +22,9 @@ class TestRunDailyResearch:
     def test_concurrent_run_aborts_when_lock_held(self):
         """When another cycle is already running, run_daily_research returns early without processing."""
         from src.cron.daily_research import run_daily_research
-
         import src.cron.daily_research as dr
 
-        # Track whether PostgresAdapter was called
+        # Track whether PostgresAdapter was called (only if lock is acquired)
         adapter_called = False
         original_adapter = dr.PostgresAdapter
 
@@ -34,17 +33,14 @@ class TestRunDailyResearch:
             adapter_called = True
             return original_adapter(*args, **kwargs)
 
-        original_acquire = dr._acquire_lock
-        dr._acquire_lock = lambda lock_path: False
-        dr.PostgresAdapter = tracking_adapter
-
-        try:
+        # Use patch.object as context manager to guarantee restoration
+        # regardless of how the test exits (normal return or exception).
+        with patch.object(dr, "_acquire_lock", lambda lock_path: False):
+            dr.PostgresAdapter = tracking_adapter
             run_daily_research()
-            # PostgresAdapter must not have been called since we aborted early
-            assert adapter_called is False, "PostgresAdapter was called despite lock not acquired"
-        finally:
-            dr._acquire_lock = original_acquire
-            dr.PostgresAdapter = original_adapter
+
+        # Lock was not acquired → PostgresAdapter should not have been called
+        assert adapter_called is False, "PostgresAdapter was called despite lock not acquired"
 
     def test_processes_each_active_campaign(self):
         """run_daily_research calls the validation cycle for each campaign."""
