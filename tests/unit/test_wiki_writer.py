@@ -131,3 +131,51 @@ class TestWikiWriterInvalidateEntry:
         call_args = mock_db.execute.call_args
         assert reason in call_args[0][1]  # reason is a parameter
         assert entry_id in str(call_args[0][1])  # entry_id is a parameter
+
+
+class TestWikiWriterDBFailureHandling:
+    """
+    DB failures in wiki_writer must not propagate and abort consensus execution.
+    Wiki writes are auxiliary — consensus has already succeeded and proposals
+    have already been executed by the time wiki writing happens.
+    """
+
+    def test_write_consensus_entry_db_failure_returns_none_after_fix(self):
+        """
+        After the fix: write_consensus_entry catches DB failures and returns
+        None instead of propagating. The consensus flow should continue even
+        if wiki persistence fails — the audit log and webhooks have already fired.
+        """
+        mock_db = MagicMock()
+        mock_db.create_wiki_entry.side_effect = Exception("Connection lost")
+
+        writer = WikiWriter(db=mock_db)
+        result = writer.write_consensus_entry(
+            title="Test",
+            content="Content",
+            green_rationale="",
+            red_objections=[],
+            consensus_note="",
+            sources=[],
+            tags=[],
+        )
+
+        # After fix: should return None, not raise
+        assert result is None, (
+            "write_consensus_entry should return None when DB write fails, "
+            "allowing consensus execution to continue without aborting."
+        )
+
+    def test_invalidate_entry_db_failure_returns_none_after_fix(self):
+        """
+        After the fix: invalidate_entry catches DB failures and returns
+        gracefully — a stale wiki entry is not a critical failure.
+        """
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = Exception("Connection lost")
+
+        writer = WikiWriter(db=mock_db)
+        result = writer.invalidate_entry(str(uuid4()), "Outdated")
+
+        # After fix: should return None (no exception raised)
+        assert result is None

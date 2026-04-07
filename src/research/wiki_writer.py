@@ -5,10 +5,13 @@ After the adversarial loop reaches consensus, the WikiWriter records the
 validated research as a wiki entry for future reference.
 """
 import hashlib
+import logging
 import re
 from typing import Any, Optional
 
 from src.db.base import DatabaseAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class WikiWriter:
@@ -34,7 +37,7 @@ class WikiWriter:
         consensus_note: str,
         sources: list[dict[str, Any]],
         tags: list[str],
-    ) -> dict[str, Any]:
+    ) -> Optional[dict[str, Any]]:
         """
         Write a new wiki entry from a consensus decision.
 
@@ -48,20 +51,27 @@ class WikiWriter:
             tags: List of tag strings
 
         Returns:
-            The created wiki entry dict from the database
+            The created wiki entry dict from the database, or None if the DB write fails.
         """
         slug = self._generate_slug(title)
-        entry = self._db.create_wiki_entry({
-            "title": title,
-            "slug": slug,
-            "content": content,
-            "green_rationale": green_rationale,
-            "red_objections": red_objections,
-            "consensus_note": consensus_note,
-            "sources": sources,
-            "tags": tags,
-        })
-        return entry
+        try:
+            entry = self._db.create_wiki_entry({
+                "title": title,
+                "slug": slug,
+                "content": content,
+                "green_rationale": green_rationale,
+                "red_objections": red_objections,
+                "consensus_note": consensus_note,
+                "sources": sources,
+                "tags": tags,
+            })
+            return entry
+        except Exception as exc:
+            logger.warning(
+                "wiki_entry_write_failed",
+                extra={"title": title, "error": str(exc)},
+            )
+            return None
 
     def invalidate_entry(self, entry_id: str, reason: str) -> None:
         """
@@ -71,10 +81,16 @@ class WikiWriter:
             entry_id: UUID of the wiki entry
             reason: Why the entry is being invalidated
         """
-        self._db.execute(
-            "UPDATE wiki_entries SET invalidated_at = NOW(), invalidation_reason = %s WHERE id = %s",
-            (reason, str(entry_id)),
-        )
+        try:
+            self._db.execute(
+                "UPDATE wiki_entries SET invalidated_at = NOW(), invalidation_reason = %s WHERE id = %s",
+                (reason, str(entry_id)),
+            )
+        except Exception as exc:
+            logger.warning(
+                "wiki_entry_invalidate_failed",
+                extra={"entry_id": entry_id, "error": str(exc)},
+            )
 
     def _generate_slug(self, title: str) -> str:
         """
