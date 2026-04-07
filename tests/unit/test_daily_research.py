@@ -91,7 +91,6 @@ class TestRunDailyResearch:
             for name, cls in original_modules.items():
                 setattr(dr, name, cls)
             dr.get_settings = original_dr_get_settings
-            dr.get_settings = original_dr_get_settings
             config_module.get_settings = original_get_settings
 
     def test_consensus_reached_executes_and_fires_webhook(self):
@@ -244,6 +243,186 @@ class TestRunDailyResearch:
             dispatch_calls = mock_webhook_service.dispatch.call_args_list
             event_names = [call[0][0] for call in dispatch_calls]
             assert "manual_review_required" in event_names
+        finally:
+            for name, cls in original_modules.items():
+                setattr(dr, name, cls)
+            dr.get_settings = original_dr_get_settings
+            config_module.get_settings = original_get_settings
+
+    def test_empty_campaign_list_returns_early(self):
+        """When no active campaigns exist, run_daily_research returns early without error."""
+        from src.cron.daily_research import run_daily_research
+
+        mock_db = MagicMock()
+        mock_db.list_campaigns.return_value = []
+
+        mock_wiki_writer = MagicMock()
+        mock_webhook_service = MagicMock()
+        mock_audit_service = MagicMock()
+        mock_gads_client = MagicMock()
+
+        import src.cron.daily_research as dr
+        import src.config as config_module
+
+        original_get_settings = config_module.get_settings
+        original_dr_get_settings = dr.get_settings
+        config_module.get_settings = _mock_get_settings
+        dr.get_settings = _mock_get_settings
+
+        original_modules = {
+            "PostgresAdapter": dr.PostgresAdapter,
+            "GoogleAdsClient": dr.GoogleAdsClient,
+            "AdversarialValidator": dr.AdversarialValidator,
+            "WikiWriter": dr.WikiWriter,
+            "WebhookService": dr.WebhookService,
+            "AuditService": dr.AuditService,
+        }
+
+        dr.PostgresAdapter = MagicMock(return_value=mock_db)
+        dr.GoogleAdsClient = MagicMock(return_value=mock_gads_client)
+        dr.AdversarialValidator = MagicMock()
+        dr.WikiWriter = MagicMock(return_value=mock_wiki_writer)
+        dr.WebhookService = MagicMock(return_value=mock_webhook_service)
+        dr.AuditService = MagicMock(return_value=mock_audit_service)
+
+        try:
+            run_daily_research()
+            # Validator should never be called since no campaigns exist
+            dr.AdversarialValidator.assert_not_called()
+            mock_webhook_service.dispatch.assert_not_called()
+        finally:
+            for name, cls in original_modules.items():
+                setattr(dr, name, cls)
+            dr.get_settings = original_dr_get_settings
+            config_module.get_settings = original_get_settings
+
+    def test_db_unreachable_returns_early_with_error_webhook(self):
+        """When DB is unreachable at startup, cycle_error is dispatched and function returns."""
+        from src.cron.daily_research import run_daily_research
+
+        mock_webhook_service = MagicMock()
+
+        import src.cron.daily_research as dr
+        import src.config as config_module
+
+        original_get_settings = config_module.get_settings
+        original_dr_get_settings = dr.get_settings
+        config_module.get_settings = _mock_get_settings
+        dr.get_settings = _mock_get_settings
+
+        original_modules = {
+            "PostgresAdapter": dr.PostgresAdapter,
+            "GoogleAdsClient": dr.GoogleAdsClient,
+            "AdversarialValidator": dr.AdversarialValidator,
+            "WikiWriter": dr.WikiWriter,
+            "WebhookService": dr.WebhookService,
+            "AuditService": dr.AuditService,
+        }
+
+        def db_raises(*args, **kwargs):
+            raise ConnectionError("could not connect to database")
+
+        dr.PostgresAdapter = MagicMock(side_effect=db_raises)
+        dr.WebhookService = MagicMock(return_value=mock_webhook_service)
+        dr.GoogleAdsClient = MagicMock()
+        dr.AdversarialValidator = MagicMock()
+        dr.WikiWriter = MagicMock()
+        dr.AuditService = MagicMock()
+
+        try:
+            run_daily_research()
+            # Should have dispatched a cycle_error webhook
+            dispatch_calls = mock_webhook_service.dispatch.call_args_list
+            event_names = [call[0][0] for call in dispatch_calls]
+            assert "cycle_error" in event_names
+            # Error payload should mention campaign fetch failure
+            error_payload = next(call[0][1] for call in dispatch_calls if call[0][0] == "cycle_error")
+            assert "Failed to fetch campaigns" in error_payload.get("error", "")
+        finally:
+            for name, cls in original_modules.items():
+                setattr(dr, name, cls)
+            dr.get_settings = original_dr_get_settings
+            config_module.get_settings = original_get_settings
+
+    def test_consensus_execution_updates_last_reviewed_at(self):
+        """When consensus is reached, campaign last_reviewed_at is updated in DB."""
+        from src.cron.daily_research import run_daily_research
+
+        cid = uuid4()
+        campaigns = [
+            {
+                "id": str(cid),
+                "campaign_id": "12345",
+                "customer_id": "cust_002",
+                "name": "Campaign 2",
+                "api_key_token": "token",
+                "status": "active",
+            }
+        ]
+
+        mock_db = MagicMock()
+        mock_db.list_campaigns.return_value = campaigns
+        mock_db.search_wiki.return_value = []
+
+        final_state = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.CONSENSUS_LOCKED,
+            consensus_reached=True,
+            round_number=1,
+            green_proposals=[{"type": "keyword_add", "target": "running shoes"}],
+            red_objections=[],
+        )
+
+        mock_validator = MagicMock()
+        mock_validator.run_cycle.return_value = final_state
+
+        mock_wiki_writer = MagicMock()
+        mock_webhook_service = MagicMock()
+        mock_audit_service = MagicMock()
+        mock_gads_client = MagicMock()
+        mock_gads_client.get_performance_report.return_value = MagicMock(
+            impressions=0, clicks=0, ctr=0.0, spend_micros=0,
+            conversions=0.0, avg_cpc_micros=0,
+        )
+        mock_gads_client.add_keywords = MagicMock()
+
+        import src.cron.daily_research as dr
+        import src.config as config_module
+
+        original_get_settings = config_module.get_settings
+        original_dr_get_settings = dr.get_settings
+        config_module.get_settings = _mock_get_settings
+        dr.get_settings = _mock_get_settings
+
+        original_modules = {
+            "PostgresAdapter": dr.PostgresAdapter,
+            "GoogleAdsClient": dr.GoogleAdsClient,
+            "AdversarialValidator": dr.AdversarialValidator,
+            "WikiWriter": dr.WikiWriter,
+            "WebhookService": dr.WebhookService,
+            "AuditService": dr.AuditService,
+        }
+
+        dr.PostgresAdapter = MagicMock(return_value=mock_db)
+        dr.GoogleAdsClient = MagicMock(return_value=mock_gads_client)
+        dr.AdversarialValidator = MagicMock(return_value=mock_validator)
+        dr.WikiWriter = MagicMock(return_value=mock_wiki_writer)
+        dr.WebhookService = MagicMock(return_value=mock_webhook_service)
+        dr.AuditService = MagicMock(return_value=mock_audit_service)
+
+        try:
+            run_daily_research()
+            # Verify DB.execute was called to update last_reviewed_at
+            db_calls = mock_db.execute.call_args_list
+            update_calls = [c for c in db_calls if "UPDATE campaigns SET last_reviewed_at" in str(c)]
+            assert len(update_calls) == 1
+            # Verify audit was logged
+            mock_audit_service.log_decision.assert_called_once()
+            # Verify consensus webhook was dispatched
+            dispatch_calls = mock_webhook_service.dispatch.call_args_list
+            event_names = [call[0][0] for call in dispatch_calls]
+            assert "consensus_reached" in event_names
         finally:
             for name, cls in original_modules.items():
                 setattr(dr, name, cls)

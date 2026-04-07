@@ -29,14 +29,16 @@ def run_daily_research() -> None:
     5. On max rounds without consensus: flag for manual review
     6. On any error: fire error webhook, continue to next campaign
     """
-    db = PostgresAdapter()
-    wiki_writer = WikiWriter(db)
-    webhook_service = WebhookService(db)
-    audit_service = AuditService(db)
+    # Construct services in order; webhook_service must exist before db.connect
+    # so the error handler can dispatch cycle_error if db connection fails.
+    webhook_service = WebhookService()
     guard = CapabilityGuard()
     today = date.today().isoformat()
 
     try:
+        db = PostgresAdapter()
+        wiki_writer = WikiWriter(db)
+        audit_service = AuditService(db)
         campaigns = db.list_campaigns()
     except Exception as e:
         print(f"[Research Cycle {today}] ERROR: Failed to fetch campaigns: {e}")
