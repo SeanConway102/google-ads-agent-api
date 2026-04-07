@@ -41,7 +41,7 @@ def _proposal_to_response(row: dict) -> HitlProposalResponse:
 @router.get("/proposals", response_model=list[HitlProposalResponse])
 def list_hitl_proposals(
     campaign_id: Annotated[UUID, Path(description="Campaign UUID")],
-    status: Optional[str] = Query(default=None, description="Filter by status (pending, approved, rejected, expired)"),
+    status_filter: Optional[str] = Query(default=None, alias="status", description="Filter by status (pending, approved, rejected, expired)"),
 ) -> list[HitlProposalResponse]:
     """List HITL proposals for a campaign, optionally filtered by status."""
     adapter = _adapter()
@@ -50,7 +50,7 @@ def list_hitl_proposals(
     if campaign is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
 
-    rows = adapter.list_hitl_proposals(campaign_id, status=status)
+    rows = adapter.list_hitl_proposals(campaign_id, status=status_filter)
     return [_proposal_to_response(row) for row in rows]
 
 
