@@ -92,6 +92,9 @@ class CapabilityGuard:
         CapabilityRule("google_ads.get_*", Permission.ALLOW),
         CapabilityRule("google_ads.get_performance_report", Permission.ALLOW),
         CapabilityRule("google_ads.get_account_hierarchy", Permission.ALLOW),
+        # Allow specific safe keyword operations
+        CapabilityRule("google_ads.add_*", Permission.ALLOW),
+        CapabilityRule("google_ads.remove_*", Permission.ALLOW),
         # Deny all other operations (no catchall allow)
     ]
 

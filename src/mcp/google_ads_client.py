@@ -313,3 +313,30 @@ class GoogleAdsClient:
             return [str(r.resource_name) for r in response.results]
 
         return self._call("google_ads.add_keywords", _call)
+
+    def remove_keywords(
+        self,
+        customer_id: str,
+        keyword_resource_names: list[str],
+    ) -> list[str]:
+        """
+        Remove keywords from an ad group by their resource names.
+        Requires: google_ads.remove_keywords
+        """
+        if not keyword_resource_names:
+            return []
+
+        def _call() -> list[str]:
+            client = self._get_client()
+            service = client.get_service("AdGroupCriterionService")
+            operations = []
+            for resource_name in keyword_resource_names:
+                op = client.resource_utils.create_delete_operation(
+                    "AdGroupCriterion",
+                    {"resource_name": resource_name},
+                )
+                operations.append(op)
+            response = service.mutate_ad_group_criteria(customer_id=customer_id, operations=operations)
+            return [str(r.resource_name) for r in response.results]
+
+        return self._call("google_ads.remove_keywords", _call)
