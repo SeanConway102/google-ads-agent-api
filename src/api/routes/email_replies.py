@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, status
 from src.api.schemas import EmailReplyPayload, EmailReplyResponse
 from src.agents.debate_state import Phase
 from src.db.postgres_adapter import PostgresAdapter
-from src.mcp.capability_guard import CapabilityGuard
+from src.mcp.capability_guard import CapabilityDenied, CapabilityGuard
 from src.mcp.google_ads_client import GoogleAdsClient
 from src.services.webhook_service import dispatch_event
 
@@ -94,33 +94,59 @@ def handle_email_reply(body: EmailReplyPayload) -> EmailReplyResponse:
         guard = CapabilityGuard()
         gads_client = GoogleAdsClient(customer_id=campaign_row["customer_id"])
         proposals = debate_row.get("green_proposals") or []
+        blocked_proposals = []
+        executed_proposals = []
+        execution_error: Exception | None = None
+
         for proposal in proposals:
             ptype = proposal.get("type", "")
-            if ptype == "keyword_add":
-                guard.check("google_ads.add_keywords")
-                gads_client.add_keywords(
-                    customer_id=campaign_row["customer_id"],
-                    ad_group_id=proposal.get("ad_group_id", ""),
-                    keywords=proposal.get("keywords", []),
-                )
-            elif ptype == "keyword_remove":
-                guard.check("google_ads.remove_keywords")
-                gads_client.remove_keywords(
-                    customer_id=campaign_row["customer_id"],
-                    keyword_resource_names=proposal.get("resource_names", []),
-                )
-            elif ptype == "bid_update":
-                guard.check("google_ads.update_keyword_bids")
-                gads_client.update_keyword_bids(
-                    customer_id=campaign_row["customer_id"],
-                    updates=proposal.get("updates", []),
-                )
-            elif ptype == "match_type_update":
-                guard.check("google_ads.update_keyword_match_types")
-                gads_client.update_keyword_match_types(
-                    customer_id=campaign_row["customer_id"],
-                    updates=proposal.get("updates", []),
-                )
+            try:
+                if ptype == "keyword_add":
+                    guard.check("google_ads.add_keywords")
+                    gads_client.add_keywords(
+                        customer_id=campaign_row["customer_id"],
+                        ad_group_id=proposal.get("ad_group_id", ""),
+                        keywords=proposal.get("keywords", []),
+                    )
+                elif ptype == "keyword_remove":
+                    guard.check("google_ads.remove_keywords")
+                    gads_client.remove_keywords(
+                        customer_id=campaign_row["customer_id"],
+                        keyword_resource_names=proposal.get("resource_names", []),
+                    )
+                elif ptype == "bid_update":
+                    guard.check("google_ads.update_keyword_bids")
+                    gads_client.update_keyword_bids(
+                        customer_id=campaign_row["customer_id"],
+                        updates=proposal.get("updates", []),
+                    )
+                elif ptype == "match_type_update":
+                    guard.check("google_ads.update_keyword_match_types")
+                    gads_client.update_keyword_match_types(
+                        customer_id=campaign_row["customer_id"],
+                        updates=proposal.get("updates", []),
+                    )
+                executed_proposals.append(ptype)
+            except CapabilityDenied:
+                blocked_proposals.append(ptype)
+            except Exception as exc:
+                execution_error = exc
+                break
+
+        # If execution failed, do NOT transition to APPROVED
+        if execution_error is not None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Google Ads execution failed: {execution_error}",
+            )
+
+        # If ANY proposals were blocked, return 403 — partial execution is not approved
+        if blocked_proposals:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Action blocked by capability guard: {blocked_proposals}. "
+                       f"{len(executed_proposals)} proposal(s) executed, {len(blocked_proposals)} blocked.",
+            )
 
         # Only mark as approved after all proposals execute successfully
         updated = dict(debate_row)

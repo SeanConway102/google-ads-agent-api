@@ -123,6 +123,109 @@ class TestEmailReplyExecutionError:
                 "Blocked operations must not be reported as successful."
             )
 
+    def test_mixed_proposals_some_blocked_returns_403(self, mock_adapter):
+        """
+        When multiple proposals exist and some are blocked by CapabilityGuard
+        while others succeed, the email reply must return 403 (not 200 or 500).
+        This is the same pattern fixed in campaigns.py commit 1201e13.
+
+        email_replies.py currently has NO try/except around the proposal loop,
+        so the first CapabilityDenied propagates as an unhandled exception → 500.
+        The correct behavior is to collect all blocked proposals and return 403
+        with a message listing which proposals were blocked.
+        """
+        from src.mcp.capability_guard import CapabilityDenied
+
+        campaign_id = uuid.uuid4()
+        campaign_row = self._make_campaign_row()
+        # Two proposals: keyword_add (blocked) and keyword_remove (would succeed)
+        debate_row = {
+            "id": uuid.uuid4(),
+            "campaign_id": campaign_id,
+            "phase": "pending_manual_review",
+            "round_number": 2,
+            "cycle_date": "2026-04-06",
+            "green_proposals": [
+                {"type": "keyword_add", "ad_group_id": "ag_001", "keywords": ["shoes"]},
+                {"type": "keyword_remove", "resource_names": ["customers/cust_001/adGroupCriteria/ag_001~123"]},
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+
+        # keyword_add is blocked; keyword_remove would succeed
+        mock_guard = MagicMock()
+        # First call (keyword_add): blocked. Second call (keyword_remove): allowed.
+        mock_guard.check.side_effect = [
+            CapabilityDenied("google_ads.add_keywords", "add_keywords not allowed"),
+            None,  # keyword_remove passes
+        ]
+
+        mock_gads = MagicMock()
+        # keyword_remove succeeds
+        mock_gads.remove_keywords.return_value = None
+
+        with patch("src.api.routes.email_replies.CapabilityGuard", return_value=mock_guard), \
+             patch("src.api.routes.email_replies.GoogleAdsClient", return_value=mock_gads):
+
+            app = self._make_app(mock_adapter)
+            client = TestClient(app, raise_server_exceptions=False)
+
+            response = client.post(
+                "/email-replies",
+                json={"email_from": "owner@example.com", "body": "yes"},
+            )
+
+            # Must return 403 (Forbidden) when any proposal is blocked — not 200, not 500
+            assert response.status_code == 403, (
+                f"Got {response.status_code} — "
+                "When some proposals are blocked, email_replies must return 403, "
+                "not silently proceed or return a different error."
+            )
+            # Must not transition to approved phase
+            if response.status_code == 403:
+                body = response.json()
+                assert body.get("detail") is not None, (
+                    "403 response must include a detail message about blocked proposals"
+                )
+
+    def test_proposal_execution_error_returns_500(self, mock_adapter):
+        """
+        When a proposal's GoogleAdsClient call raises a non-CapabilityDenied
+        exception (e.g., network error), the route must return 500, not 200.
+        The debate phase must NOT transition to APPROVED.
+        """
+        campaign_id = uuid.uuid4()
+        mock_adapter.get_campaign_by_owner_email.return_value = self._make_campaign_row()
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = self._make_debate_row(campaign_id)
+
+        mock_guard = MagicMock()
+        mock_guard.check.return_value = None  # guard passes
+
+        mock_gads = MagicMock()
+        mock_gads.add_keywords.side_effect = RuntimeError("Google Ads API timeout")
+
+        with patch("src.api.routes.email_replies.CapabilityGuard", return_value=mock_guard), \
+             patch("src.api.routes.email_replies.GoogleAdsClient", return_value=mock_gads):
+
+            app = self._make_app(mock_adapter)
+            client = TestClient(app, raise_server_exceptions=False)
+
+            response = client.post(
+                "/email-replies",
+                json={"email_from": "owner@example.com", "body": "yes"},
+            )
+
+            # Must return 500 when gads_client itself raises
+            assert response.status_code == 500, (
+                f"Got {response.status_code} — gads_client raised RuntimeError, "
+                "expected 500 Internal Server Error"
+            )
+            # Must not save APPROVED phase
+            mock_adapter.save_debate_state.assert_not_called()
+
 
 @pytest.fixture
 def mock_adapter(monkeypatch):
