@@ -65,14 +65,19 @@ class TestDatabaseAdapterInterface:
         required_methods = [
             # Campaign operations
             "create_campaign", "get_campaign", "list_campaigns", "delete_campaign",
+            "get_campaign_by_owner_email",
             # Wiki operations
             "search_wiki", "create_wiki_entry", "get_wiki_entry", "invalidate_wiki_entry",
             # Debate state
-            "save_debate_state", "get_latest_debate_state",
+            "save_debate_state", "get_latest_debate_state", "get_latest_debate_state_any_cycle",
             # Audit
-            "write_audit_log",
+            "write_audit_log", "query_audit_log",
             # Webhooks
             "register_webhook", "list_webhooks", "delete_webhook",
+            "write_webhook_delivery_log",
+            # HITL proposals
+            "create_hitl_proposal", "list_hitl_proposals",
+            "update_hitl_proposal_status", "get_hitl_proposal",
             # Base
             "fetch_one", "fetch_all", "execute", "execute_returning",
         ]

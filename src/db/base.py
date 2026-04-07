@@ -58,6 +58,11 @@ class DatabaseAdapter(ABC):
         pass
 
     @abstractmethod
+    def get_campaign_by_owner_email(self, owner_email: str) -> Optional[dict]:
+        """Get a campaign by owner email address. Returns None if not found."""
+        pass
+
+    @abstractmethod
     def list_campaigns(self) -> List[dict]:
         """List all campaigns, ordered by created_at DESC."""
         pass
@@ -155,4 +160,50 @@ class DatabaseAdapter(ABC):
     @abstractmethod
     def delete_webhook(self, id: UUID) -> None:
         """Delete a webhook subscription by UUID."""
+        pass
+
+    @abstractmethod
+    def write_webhook_delivery_log(self, data: dict) -> dict:
+        """
+        Write a webhook delivery attempt log entry.
+        Returns the created row.
+        """
+        pass
+
+    # ─── HITL proposals ────────────────────────────────────────────────────────
+
+    @abstractmethod
+    def create_hitl_proposal(self, data: dict) -> dict:
+        """
+        Create a new HITL proposal (human-in-the-loop approval request).
+        Returns the created proposal row.
+        """
+        pass
+
+    @abstractmethod
+    def list_hitl_proposals(
+        self,
+        campaign_id: str,
+        status: Optional[str] = None,
+    ) -> List[dict]:
+        """
+        List HITL proposals for a campaign, optionally filtered by status.
+        Returns proposals ordered by created_at DESC.
+        """
+        pass
+
+    @abstractmethod
+    def update_hitl_proposal_status(
+        self,
+        proposal_id: str,
+        status: str,
+    ) -> None:
+        """
+        Update the status of a HITL proposal (approved/rejected/expired).
+        """
+        pass
+
+    @abstractmethod
+    def get_hitl_proposal(self, proposal_id: UUID) -> Optional[dict]:
+        """Get a HITL proposal by UUID. Returns None if not found."""
         pass
