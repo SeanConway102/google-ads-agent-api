@@ -48,7 +48,10 @@ def handle_inbound_reply(
     """
     # Extract the email address from the "from" field (format: "Name <email@domain.com>")
     match = re.search(r"<(.+?)>|^(.+?@.+?)$", from_email)
-    sender_email = match.group(1) if match else from_email
+    if not match:
+        print(f"    Warning: malformed from_email discarded: {from_email!r}")
+        return
+    sender_email = match.group(1) if match.group(1) else match.group(2)
 
     db = PostgresAdapter()
 
