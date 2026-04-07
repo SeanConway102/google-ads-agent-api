@@ -3,7 +3,7 @@ RED: Failing tests for daily_research cron script.
 Tests the full daily research cycle orchestration.
 """
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 from uuid import uuid4
 
 from src.agents.debate_state import DebateState, Phase
@@ -124,7 +124,9 @@ class TestRunDailyResearch:
         )
 
         mock_validator = MagicMock()
-        mock_validator.run_cycle.return_value = final_state
+        async def mock_run_cycle_consensus(*args, **kwargs):
+            return final_state
+        mock_validator.run_cycle = mock_run_cycle_consensus
 
         mock_wiki_writer = MagicMock()
         mock_webhook_service = MagicMock()
@@ -231,9 +233,18 @@ class TestRunDailyResearch:
             "AuditService": dr.AuditService,
         }
 
+        # Directly construct the validator instance so it has async run_cycle.
+        # Patching dr.AdversarialValidator as a class and setting return_value
+        # is fragile: pytest-asyncio strict mode can cause the mock chain to
+        # return a fresh MagicMock instead of our configured mock_validator.
+        async def mock_run_cycle(*args, **kwargs):
+            return final_state
+        mock_validator_instance = MagicMock()
+        mock_validator_instance.run_cycle = mock_run_cycle
+
         dr.PostgresAdapter = MagicMock(return_value=mock_db)
         dr.GoogleAdsClient = MagicMock(return_value=mock_gads_client)
-        dr.AdversarialValidator = MagicMock(return_value=mock_validator)
+        dr.AdversarialValidator = MagicMock(return_value=mock_validator_instance)
         dr.WikiWriter = MagicMock(return_value=mock_wiki_writer)
         dr.WebhookService = MagicMock(return_value=mock_webhook_service)
         dr.AuditService = MagicMock(return_value=mock_audit_service)
@@ -375,7 +386,9 @@ class TestRunDailyResearch:
         )
 
         mock_validator = MagicMock()
-        mock_validator.run_cycle.return_value = final_state
+        async def mock_run_cycle_reviewed(*args, **kwargs):
+            return final_state
+        mock_validator.run_cycle = mock_run_cycle_reviewed
 
         mock_wiki_writer = MagicMock()
         mock_webhook_service = MagicMock()
@@ -469,8 +482,8 @@ class TestRunDailyResearch:
 
         mock_validator = MagicMock()
         mock_validator.run_cycle.side_effect = [
-            Exception("Google Ads API error"),
-            good_state,
+            AsyncMock(side_effect=RuntimeError("Google Ads API error")),
+            AsyncMock(return_value=good_state),
         ]
 
         mock_wiki_writer = MagicMock()
@@ -539,7 +552,9 @@ class TestRunDailyResearch:
         mock_db.search_wiki.return_value = []
 
         mock_validator = MagicMock()
-        mock_validator.run_cycle.return_value = None  # validator returned no state
+        async def mock_run_cycle_none(*args, **kwargs):
+            return None
+        mock_validator.run_cycle = mock_run_cycle_none
 
         mock_wiki_writer = MagicMock()
         mock_webhook_service = MagicMock()
@@ -621,7 +636,9 @@ class TestRunDailyResearch:
         )
 
         mock_validator = MagicMock()
-        mock_validator.run_cycle.return_value = ongoing_state
+        async def mock_run_cycle_green(*args, **kwargs):
+            return ongoing_state
+        mock_validator.run_cycle = mock_run_cycle_green
 
         mock_wiki_writer = MagicMock()
         mock_webhook_service = MagicMock()
@@ -664,6 +681,126 @@ class TestRunDailyResearch:
             assert "consensus_reached" not in event_names
             assert "manual_review_required" not in event_names
             assert "cycle_error" not in event_names
+        finally:
+            for name, cls in original_modules.items():
+                setattr(dr, name, cls)
+            dr.get_settings = original_dr_get_settings
+            config_module.get_settings = original_get_settings
+
+
+class TestValidatorRunCycleCalledWithAwait:
+    """
+    RED: run_daily_research must await validator.run_cycle() — it is an async def.
+
+    BUG: validator.run_cycle is async (in validator.py:24) but run_daily_research
+    calls it as a sync call: state = validator.run_cycle(...). Without await, state
+    is a coroutine object, not a DebateState. Accessing state.consensus_reached raises
+    AttributeError: 'coroutine' object has no attribute 'consensus_reached'.
+
+    The existing tests mock AdversarialValidator entirely, so they pass even with
+    the missing await. This test uses the real AdversarialValidator with fully mocked
+    agents to expose the sync/async mismatch.
+    """
+
+    def test_validator_run_cycle_is_called_and_awaited(self):
+        """
+        When validator.run_cycle() is properly awaited, the research cycle completes
+        without AttributeError and fires consensus_reached (not cycle_error).
+
+        This test asserts the CORRECT behavior. With the bug present, it fails:
+          - cycle_error fires because coroutine.consensus_reached raises AttributeError
+          - consensus_reached does NOT fire because the cycle crashed
+
+        After fix (asyncio.run wrapper), this test passes.
+        """
+        import warnings
+        import src.cron.daily_research as dr
+        import src.config as config_module
+
+        cid = uuid4()
+        campaigns = [
+            {
+                "id": str(cid),
+                "campaign_id": "12345",
+                "customer_id": "cust_001",
+                "name": "Test Campaign",
+                "api_key_token": "token",
+                "status": "active",
+            }
+        ]
+
+        mock_db = MagicMock()
+        mock_db.list_campaigns.return_value = campaigns
+        mock_db.search_wiki.return_value = []
+        mock_db.get_latest_debate_state.return_value = None
+
+        from src.research.validator import AdversarialValidator
+
+        class TrackerValidator(AdversarialValidator):
+            async def run_cycle(self, *args, **kwargs):
+                return await super().run_cycle(*args, **kwargs)
+
+        tracker_validator = TrackerValidator(
+            green=MagicMock(),
+            red=MagicMock(),
+            coordinator=MagicMock(),
+            state_machine=MagicMock(),
+        )
+
+        mock_wiki_writer = MagicMock()
+        mock_webhook_service = MagicMock()
+        mock_audit_service = MagicMock()
+        mock_gads_client = MagicMock()
+        mock_gads_client.get_performance_report.return_value = MagicMock(
+            impressions=0, clicks=0, ctr=0.0, spend_micros=0,
+            conversions=0.0, avg_cpc_micros=0,
+        )
+        mock_gads_client.add_keywords = MagicMock()
+
+        original_get_settings = config_module.get_settings
+        original_dr_get_settings = dr.get_settings
+        config_module.get_settings = _mock_get_settings
+        dr.get_settings = _mock_get_settings
+
+        original_modules = {
+            "PostgresAdapter": dr.PostgresAdapter,
+            "GoogleAdsClient": dr.GoogleAdsClient,
+            "AdversarialValidator": dr.AdversarialValidator,
+            "WikiWriter": dr.WikiWriter,
+            "WebhookService": dr.WebhookService,
+            "AuditService": dr.AuditService,
+        }
+
+        dr.PostgresAdapter = MagicMock(return_value=mock_db)
+        dr.GoogleAdsClient = MagicMock(return_value=mock_gads_client)
+        dr.AdversarialValidator = lambda *args, **kwargs: tracker_validator
+        dr.WikiWriter = MagicMock(return_value=mock_wiki_writer)
+        dr.WebhookService = MagicMock(return_value=mock_webhook_service)
+        dr.AuditService = MagicMock(return_value=mock_audit_service)
+
+        try:
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                dr.run_daily_research()
+                # With fix: no unawaited coroutine warning
+                unawaited = [x for x in w if "was never awaited" in str(x.message)]
+                assert len(unawaited) == 0, (
+                    f"run_daily_research left a coroutine unawaited: "
+                    f"{[str(x.message) for x in unawaited]}. "
+                    f"Fix: wrap validator.run_cycle(...) in asyncio.run()"
+                )
+            # With fix: consensus_reached fires, NOT cycle_error
+            dispatch_calls = mock_webhook_service.dispatch.call_args_list
+            event_names = [call[0][0] for call in dispatch_calls]
+            assert "cycle_error" not in event_names, (
+                f"cycle_error fired — the validator coroutine was not awaited "
+                f"and crashed with AttributeError. Events fired: {event_names}"
+            )
+            # consensus_reached should fire (validator completed with consensus)
+            assert "consensus_reached" in event_names, (
+                f"consensus_reached did not fire — validator may not have completed. "
+                f"Events fired: {event_names}"
+            )
         finally:
             for name, cls in original_modules.items():
                 setattr(dr, name, cls)

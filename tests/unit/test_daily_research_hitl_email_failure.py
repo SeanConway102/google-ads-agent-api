@@ -68,7 +68,7 @@ class TestHitlEmailFailureWebhook:
         class MockValidator:
             def __init__(self, *args, **kwargs):
                 pass
-            def run_cycle(self, *args, **kwargs):
+            async def run_cycle(self, *args, **kwargs):
                 return mock_state
 
         # Track dispatched webhooks

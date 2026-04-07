@@ -3,6 +3,7 @@ Daily research cycle — triggered by cron or systemd timer at 8am server time.
 Fetches campaign performance, runs adversarial validation loop,
 executes approved changes via MCP, writes wiki entries, fires webhooks.
 """
+import asyncio
 import os
 import sys
 from datetime import date
@@ -194,7 +195,7 @@ def run_daily_research(target_campaign_id: str | None = None) -> None:
                 )
 
                 # 4. Run adversarial validation
-                state = validator.run_cycle(
+                state = asyncio.run(validator.run_cycle(
                     cycle_date=today,
                     campaign_id=campaign["id"],
                     campaign_data={
@@ -202,7 +203,7 @@ def run_daily_research(target_campaign_id: str | None = None) -> None:
                         "performance": performance_data,
                     },
                     wiki_context=wiki_context,
-                )
+                ))
 
                 # 5. Handle outcome
                 if state is None:

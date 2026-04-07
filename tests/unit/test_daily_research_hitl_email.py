@@ -99,7 +99,7 @@ class TestDailyResearchPendingManualReviewEmailsOwner:
         class MockValidator:
             def __init__(self, *args, **kwargs):
                 pass
-            def run_cycle(self, *args, **kwargs):
+            async def run_cycle(self, *args, **kwargs):
                 return mock_state
 
         with patch("src.cron.daily_research.PostgresAdapter", return_value=mock_db), \
@@ -187,7 +187,7 @@ class TestDailyResearchPendingManualReviewEmailsOwner:
         class MockValidator:
             def __init__(self, *args, **kwargs):
                 pass
-            def run_cycle(self, *args, **kwargs):
+            async def run_cycle(self, *args, **kwargs):
                 return mock_state
 
         with patch("src.cron.daily_research.PostgresAdapter", return_value=mock_db), \
@@ -276,7 +276,7 @@ class TestDailyResearchMissingOwnerEmail:
         class MockValidator:
             def __init__(self, *args, **kwargs):
                 pass
-            def run_cycle(self, *args, **kwargs):
+            async def run_cycle(self, *args, **kwargs):
                 return mock_state
 
         with patch("src.cron.daily_research.PostgresAdapter", return_value=mock_db), \
