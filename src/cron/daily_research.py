@@ -16,6 +16,7 @@ from src.research.validator import AdversarialValidator
 from src.research.wiki_writer import WikiWriter
 from src.services.webhook_service import WebhookService
 from src.services.audit_service import AuditService
+from src.services.email_service import send_proposal_email
 from src.agents.debate_state import Phase
 from src.config import get_settings
 
@@ -72,6 +73,39 @@ def _release_lock(lock_path: Path) -> None:
             lock_path.unlink()
     except OSError:
         pass
+
+
+def _send_hitl_emails(
+    state: Any,
+    campaign: dict,
+    webhook_service: WebhookService,
+) -> None:
+    """
+    Send HITL approval emails for each green proposal when the coordinator
+    escalates to PENDING_MANUAL_REVIEW.
+
+    Skips sending if hitl_enabled is False on the campaign (proposals go to
+    auto-execution instead of human approval).
+    """
+    if not campaign.get("hitl_enabled", False):
+        return
+
+    owner_email = campaign.get("owner_email")
+    if not owner_email:
+        return
+
+    for proposal in (state.green_proposals or []):
+        try:
+            send_proposal_email(
+                to_email=owner_email,
+                campaign_name=campaign.get("name", "Unknown Campaign"),
+                proposal_type=proposal.get("type", "unknown"),
+                impact_summary=proposal.get("impact_summary", ""),
+                reasoning=proposal.get("reasoning", ""),
+            )
+        except Exception as exc:
+            # Email failure should not abort the research cycle
+            print(f"    Warning: failed to send HITL email: {exc}")
 
 
 def run_daily_research(target_campaign_id: str | None = None) -> None:
@@ -171,6 +205,7 @@ def run_daily_research(target_campaign_id: str | None = None) -> None:
                     _execute_consensus(state, campaign, gads_client, guard, db, wiki_writer, audit_service, webhook_service, today)
                 elif state.phase == Phase.PENDING_MANUAL_REVIEW:
                     print(f"    Max rounds reached — flagged for manual review")
+                    _send_hitl_emails(state, campaign, webhook_service)
                     webhook_service.dispatch("manual_review_required", {
                         "campaign_id": campaign_id_str,
                         "cycle_date": today,
