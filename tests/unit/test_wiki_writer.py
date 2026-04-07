@@ -97,6 +97,26 @@ class TestWikiWriterWriteConsensusEntry:
         assert result == expected
 
 
+class TestWikiWriterInit:
+    """Test WikiWriter.__init__() with and without db argument."""
+
+    def test_wiki_writer_with_explicit_db(self):
+        """WikiWriter stores the provided db adapter."""
+        mock_db = MagicMock()
+        writer = WikiWriter(db=mock_db)
+        assert writer._db is mock_db
+
+    def test_wiki_writer_without_db_creates_default_adapter(self):
+        """When db is None, WikiWriter creates a PostgresAdapter as default."""
+        from unittest.mock import patch
+
+        mock_db = MagicMock()
+        # PostgresAdapter is imported inside WikiWriter.__init__ from src.db.postgres_adapter
+        with patch("src.db.postgres_adapter.PostgresAdapter", return_value=mock_db):
+            writer = WikiWriter()  # no db passed
+            assert writer._db is mock_db
+
+
 class TestWikiWriterInvalidateEntry:
     """Test WikiWriter.invalidate_entry()."""
 

@@ -156,6 +156,20 @@ class TestGetCampaignInsights:
         assert data["phase"] is None
         assert data["round_number"] is None
 
+    def test_insights_returns_422_when_campaign_status_is_invalid(self, mock_adapter, client):
+        """Returns 422 when campaign row has an unrecognized status value."""
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["status"] = "invalid_status_value"  # not a valid CampaignStatus
+
+        mock_adapter.get_campaign.return_value = campaign_row
+
+        response = client.get(f"/campaigns/{campaign_uuid}/insights")
+
+        assert response.status_code == 422
+        assert "unknown status" in response.json()["detail"].lower()
+
     def test_insights_is_behind_api_key_auth(self, mock_adapter, client):
         """The insights endpoint lives in the campaigns router which requires API key auth."""
         # Verify the campaigns router uses APIKeyAuthMiddleware (applied in main.py)

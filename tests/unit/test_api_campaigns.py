@@ -138,6 +138,23 @@ class TestCreateCampaign:
         assert response.status_code == 409
         assert "cmp_existing" in response.json()["detail"]
 
+    def test_create_campaign_db_error_returns_500(self, client, mock_adapter):
+        """POST /campaigns returns 500 on non-constraint DB errors."""
+        mock_adapter.create_campaign.side_effect = Exception("connection timeout")
+
+        response = client.post(
+            "/campaigns",
+            json={
+                "campaign_id": "cmp_new",
+                "customer_id": "123-456-7890",
+                "name": "New Campaign",
+                "api_key_token": "tok_abc",
+            },
+        )
+
+        assert response.status_code == 500
+        assert "Database error" in response.json()["detail"]
+
     def test_create_campaign_requires_fields(self, client):
         """POST /campaigns with missing required fields returns 422."""
         response = client.post("/campaigns", json={})
