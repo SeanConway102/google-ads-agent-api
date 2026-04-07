@@ -421,10 +421,8 @@ class GoogleAdsClient:
             service = client.get_service("AdGroupCriterionService")
             operations = []
             for resource_name in keyword_resource_names:
-                op = client.resource_utils.create_delete_operation(
-                    "AdGroupCriterion",
-                    {"resource_name": resource_name},
-                )
+                op = client.get_type("AdGroupCriterionOperation")
+                op.remove = resource_name
                 operations.append(op)
             response = service.mutate_ad_group_criteria(customer_id=customer_id, operations=operations)
             return [str(r.resource_name) for r in response.results]
