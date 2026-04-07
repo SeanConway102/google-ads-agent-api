@@ -95,6 +95,47 @@ async def deliver_webhook(
     return False
 
 
+class WebhookService:
+    """
+    Synchronous webhook dispatch service wrapping async delivery.
+    Used by the daily research cron to fire webhooks without async context.
+    """
+
+    def __init__(self, db: PostgresAdapter | None = None) -> None:
+        self._db = db or PostgresAdapter()
+
+    def dispatch(self, event_type: str, payload: dict[str, Any]) -> None:
+        """
+        Dispatch a webhook event synchronously.
+        Wraps the async deliver_webhook infrastructure for sync contexts.
+        Failures are logged but do not raise.
+        """
+        try:
+            webhooks = self._db.list_webhooks()
+            subscribed = [
+                wh for wh in webhooks
+                if event_type in wh.get("events", [])
+            ]
+            for wh in subscribed:
+                try:
+                    import asyncio
+                    asyncio.run(
+                        deliver_webhook(
+                            url=wh["url"],
+                            event_type=event_type,
+                            payload=payload,
+                            secret=wh.get("secret"),
+                        )
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "webhook_delivery_failed",
+                        extra={"url": wh.get("url", ""), "event": event_type, "error": str(exc)},
+                    )
+        except Exception as exc:
+            logger.error("webhook_dispatch_error", extra={"event": event_type, "error": str(exc)})
+
+
 async def dispatch_event(
     event_type: str,
     payload: dict[str, Any],

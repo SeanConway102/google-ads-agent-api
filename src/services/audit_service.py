@@ -13,6 +13,40 @@ from src.db.postgres_adapter import PostgresAdapter
 logger = logging.getLogger(__name__)
 
 
+class AuditService:
+    """
+    Centralized audit logging for the agent system.
+    Provides both a class interface (log_decision) and standalone functions.
+    """
+
+    def __init__(self, db: PostgresAdapter | None = None) -> None:
+        self._db = db or PostgresAdapter()
+
+    def log_decision(self, state: Any, campaign: dict) -> dict:
+        """
+        Log a consensus decision from the daily research cycle.
+        Writes a CONSENSUS_REACHED audit entry.
+        """
+        row = self._db.write_audit_log({
+            "cycle_date": getattr(state, "cycle_date", ""),
+            "campaign_id": getattr(state, "campaign_id", ""),
+            "action_type": AuditAction.CONSENSUS_REACHED.value,
+            "green_proposal": getattr(state, "green_proposals", []),
+            "red_objections": getattr(state, "red_objections", []),
+            "debate_rounds": getattr(state, "round_number", 0),
+            "target": {
+                "campaign_name": campaign.get("name", ""),
+                "campaign_id": campaign.get("campaign_id", ""),
+                "phase": getattr(state, "phase", None),
+            },
+        })
+        logger.info(
+            "audit_decision_logged",
+            extra={"campaign_id": str(campaign.get("id", ""))},
+        )
+        return row
+
+
 def _adapter() -> PostgresAdapter:
     return PostgresAdapter()
 
