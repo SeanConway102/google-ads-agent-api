@@ -116,3 +116,44 @@ class TestHandleInboundReplyQuestion:
 
         # Must NOT create any hitl_proposals entry
         mock_adapter.create_hitl_proposal.assert_not_called()
+
+    def test_invalid_phase_string_does_not_raise(self):
+        """
+        If the database contains an invalid phase string (e.g. "invalid_phase"),
+        Phase(...) raises ValueError which must NOT propagate — the function
+        should return gracefully without creating a proposal.
+        Without the fix, ValueError propagates to the webhook's exception
+        handler and is silently swallowed, leaving the owner with no feedback.
+        """
+        campaign_uuid = uuid.uuid4()
+
+        mock_adapter = MagicMock()
+        mock_adapter.get_campaign_by_owner_email.return_value = {
+            "id": campaign_uuid,
+            "campaign_id": "cmp_001",
+            "customer_id": "cust_001",
+            "name": "Test Campaign",
+            "owner_email": "owner@example.com",
+            "hitl_enabled": True,
+        }
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "phase": "invalid_phase",  # invalid — not a valid Phase enum value
+            "round_number": 3,
+            "campaign_id": campaign_uuid,
+            "green_proposals": [],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        with patch("src.services.reply_handler.PostgresAdapter", return_value=mock_adapter):
+            # Must not raise ValueError — should return gracefully
+            handle_inbound_reply(
+                from_email="owner@example.com",
+                to_email="reply@adsagent.ai",
+                subject="Re: [AdsAgent] Action required",
+                body="yes",
+            )
+
+        # No proposal created for invalid phase
+        mock_adapter.create_hitl_proposal.assert_not_called()

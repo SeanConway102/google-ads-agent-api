@@ -64,7 +64,12 @@ def handle_inbound_reply(
 
     from src.agents.debate_state import Phase
 
-    if Phase(debate_row.get("phase", "")) != Phase.PENDING_MANUAL_REVIEW:
+    try:
+        phase = Phase(debate_row.get("phase", ""))
+    except ValueError:
+        return  # invalid phase in DB — ignore silently
+
+    if phase != Phase.PENDING_MANUAL_REVIEW:
         return
 
     decision = parse_reply(body)
