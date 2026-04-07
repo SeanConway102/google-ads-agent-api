@@ -292,6 +292,37 @@ class AuditLogResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# HITL / Proposal schemas
+# ──────────────────────────────────────────────────────────────────────────────
+
+class HitlProposalResponse(BaseModel):
+    """Response body for a single HITL proposal."""
+    id: UUID
+    campaign_id: UUID
+    proposal_type: str
+    impact_summary: str
+    reasoning: str
+    status: str  # pending | approved | rejected | expired
+    created_at: datetime
+    updated_at: datetime
+    decided_at: Optional[datetime] = None
+    replier_response: Optional[str] = None
+
+
+class HitlDecisionRequest(BaseModel):
+    """Request body for POST /campaigns/{uuid}/hitl/proposals/{id}/decide."""
+    decision: str = Field(..., description="Must be 'approved' or 'rejected'")
+    notes: Optional[str] = Field(default=None, description="Optional coordinator notes")
+
+
+class HitlDecisionResponse(BaseModel):
+    """Response body after deciding a HITL proposal."""
+    id: UUID
+    status: str
+    decided_at: Optional[datetime] = None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Error schemas
 # ──────────────────────────────────────────────────────────────────────────────
 
