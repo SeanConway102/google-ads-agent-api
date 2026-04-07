@@ -170,6 +170,22 @@ class TestGetCampaignInsights:
         assert response.status_code == 422
         assert "unknown status" in response.json()["detail"].lower()
 
+    def test_insights_returns_null_campaign_type_when_db_has_none(self, mock_adapter, client):
+        """When campaign row has campaign_type=None, insights returns 200 with null campaign_type."""
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["campaign_type"] = None  # DB can return None for old campaigns
+
+        mock_adapter.get_campaign.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = None
+
+        response = client.get(f"/campaigns/{campaign_uuid}/insights")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["campaign_type"] is None
+
     def test_insights_is_behind_api_key_auth(self, mock_adapter, client):
         """The insights endpoint lives in the campaigns router which requires API key auth."""
         # Verify the campaigns router uses APIKeyAuthMiddleware (applied in main.py)

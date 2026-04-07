@@ -92,7 +92,7 @@ class CampaignInsights(BaseModel):
     customer_id: str
     name: str
     status: CampaignStatus
-    campaign_type: CampaignType
+    campaign_type: Optional[CampaignType] = None
     owner_tag: Optional[str]
     created_at: datetime
     last_synced_at: Optional[datetime]
