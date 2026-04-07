@@ -360,3 +360,45 @@ class TestDebateStateMachine:
         state = sm.load_or_init("2026-04-06", cid)
         assert state.phase == Phase.PERFORMANCE_PULL
         mock_db.start_cycle.assert_not_called()  # uses save internally
+
+    def test_evaluate_consensus_with_consensus_reached_verdict_from_coordinator(self):
+        """
+        RED: evaluate_consensus should accept verdict 'consensus_reached'
+        (what CoordinatorAgent._apply_decision produces) not just 'consensus'.
+        
+        CoordinatorAgent._parse_decision extracts [CONSENSUS_REACHED] → verdict='consensus_reached'
+        CoordinatorAgent._apply_decision checks for 'consensus_reached'
+        But DebateStateMachine.evaluate_consensus checks for 'consensus' — mismatch.
+        
+        When a coordinator decision with verdict='consensus_reached' flows into the
+        state machine's evaluate_consensus, the consensus is NOT applied.
+        """
+        mock_db = MagicMock()
+        mock_db.save_debate_state.side_effect = lambda data: {
+            "cycle_date": data["cycle_date"],
+            "campaign_id": str(data["campaign_id"]),
+            "phase": data["phase"],
+            "round_number": data["round_number"],
+            "green_proposals": data.get("green_proposals", []),
+            "red_objections": data.get("red_objections", []),
+            "coordinator_decision": data.get("coordinator_decision"),
+            "consensus_reached": data.get("consensus_reached", False),
+            "compromise_proposed": data.get("compromise_proposed", False),
+            "compromise_accepted_by_green": False,
+            "compromise_accepted_by_red": False,
+        }
+        sm = DebateStateMachine(mock_db)
+        cid = uuid4()
+        state = DebateState(
+            cycle_date="2026-04-06", campaign_id=cid, phase=Phase.COORDINATOR_EVALUATES
+        )
+        # This is the verdict string CoordinatorAgent._apply_decision produces
+        coordinator_decision = {"verdict": "consensus_reached", "raw_response": "All agents agree"}
+        updated = sm.evaluate_consensus(state, coordinator_decision)
+        # The bug: evaluate_consensus checks for 'consensus' not 'consensus_reached'
+        # So consensus_reached stays False and phase stays COORDINATOR_EVALUATES
+        assert updated.consensus_reached is True, (
+            f"verdict='consensus_reached' from CoordinatorAgent should set consensus_reached=True, "
+            f"got consensus_reached={updated.consensus_reached}, phase={updated.phase}"
+        )
+        assert updated.phase == Phase.CONSENSUS_LOCKED

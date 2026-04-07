@@ -157,7 +157,7 @@ class DebateStateMachine:
         state.coordinator_decision = coordinator_decision
         verdict = coordinator_decision.get("verdict", "continue_debate")
 
-        if verdict == "consensus":
+        if verdict in ("consensus", "consensus_reached"):
             state.consensus_reached = True
             state.phase = Phase.CONSENSUS_LOCKED
         elif verdict == "compromise_proposed":
