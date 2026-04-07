@@ -215,6 +215,55 @@ class GoogleAdsClient:
 
         return self._call("google_ads.get_performance_report", _call)
 
+    def get_keyword_performance(
+        self,
+        customer_id: str,
+        campaign_id: str,
+    ) -> list[dict]:
+        """
+        Get keyword-level performance metrics for a campaign.
+        Requires: google_ads.get_keyword_performance
+        """
+        def _call() -> list[dict]:
+            from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
+            client = self._get_client()
+            service = client.get_service("GoogleAdsService")
+            query = f"""
+                SELECT
+                    campaign.id,
+                    ad_group_criterion.keyword.text,
+                    ad_group_criterion.keyword.match_type,
+                    metrics.impressions,
+                    metrics.clicks,
+                    metrics.ctr,
+                    metrics.cost_micros,
+                    metrics.conversions,
+                    metrics.average_cpc
+                FROM ad_group_criterion
+                WHERE campaign.id = '{campaign_id}'
+                  AND ad_group_criterion.type = 'KEYWORD'
+                ORDER BY metrics.impressions DESC
+            """
+            request = SearchGoogleAdsRequest(customer_id=customer_id, query=query)
+            response = service.search(request=request)
+            results = []
+            for row in response:
+                kw = row.ad_group_criterion.keyword
+                m = row.metrics
+                results.append({
+                    "keyword": kw.text,
+                    "match_type": kw.match_type,
+                    "impressions": m.impressions,
+                    "clicks": m.clicks,
+                    "ctr": m.ctr,
+                    "cost_micros": m.cost_micros,
+                    "conversions": m.conversions,
+                    "average_cpc": m.average_cpc,
+                })
+            return results
+
+        return self._call("google_ads.get_keyword_performance", _call)
+
     def get_account_hierarchy(self, customer_id: str) -> dict[str, Any]:
         """
         Get the account hierarchy (MCC → customer accounts).

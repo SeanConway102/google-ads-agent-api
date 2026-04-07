@@ -3,6 +3,7 @@ Tests for GoogleAdsClient keyword write operations.
 MCP-004: remove_keywords
 MCP-005: update_keyword_bids
 MCP-006: update_keyword_match_types
+MCP-007: get_keyword_performance
 """
 from unittest.mock import MagicMock, patch
 import pytest
@@ -202,3 +203,81 @@ def test_update_keyword_match_types_requires_capability():
             client.update_keyword_match_types(customer_id="123", updates=[{"resource_name": "r", "match_type": "EXACT"}])
 
     mock_guard.check.assert_called_once_with("google_ads.update_keyword_match_types")
+
+
+# ─── get_keyword_performance (MCP-007) ─────────────────────────────────────────
+
+def test_get_keyword_performance_method_exists():
+    """GoogleAdsClient should have a get_keyword_performance method."""
+    client = GoogleAdsClient()
+    assert hasattr(client, "get_keyword_performance"), "get_keyword_performance method not found"
+
+
+def test_get_keyword_performance_returns_keyword_metrics():
+    """get_keyword_performance should return keyword-level metrics from Google Ads."""
+    client = GoogleAdsClient()
+
+    mock_row = MagicMock()
+    mock_row.campaign.id = "123"
+    mock_row.ad_group_criterion.keyword.text = "summer sale"
+    mock_row.ad_group_criterion.keyword.match_type = "EXACT"
+    mock_row.metrics.impressions = 1000
+    mock_row.metrics.clicks = 50
+    mock_row.metrics.ctr = 0.05
+    mock_row.metrics.cost_micros = 5000000
+    mock_row.metrics.conversions = 2.0
+    mock_row.metrics.average_cpc = 100000
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.__iter__ = MagicMock(return_value=iter([mock_row]))
+    mock_service.search.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        result = client.get_keyword_performance(customer_id="123", campaign_id="456")
+
+    mock_service.search.assert_called_once()
+    assert len(result) == 1
+    assert result[0]["keyword"] == "summer sale"
+    assert result[0]["impressions"] == 1000
+    assert result[0]["clicks"] == 50
+
+
+def test_get_keyword_performance_empty_when_no_results():
+    """get_keyword_performance should return empty list when no keywords found."""
+    client = GoogleAdsClient()
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.__iter__ = MagicMock(return_value=iter([]))
+    mock_service.search.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        result = client.get_keyword_performance(customer_id="123", campaign_id="456")
+
+    assert result == []
+
+
+def test_get_keyword_performance_requires_capability():
+    """get_keyword_performance should call _guard.check before making API call."""
+    client = GoogleAdsClient()
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.__iter__ = MagicMock(return_value=iter([]))
+    mock_service.search.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        with patch.object(client, "_guard") as mock_guard:
+            client.get_keyword_performance(customer_id="123", campaign_id="456")
+
+    mock_guard.check.assert_called_once_with("google_ads.get_keyword_performance")
