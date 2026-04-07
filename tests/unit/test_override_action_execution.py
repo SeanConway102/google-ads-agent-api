@@ -190,3 +190,33 @@ class TestOverrideMatchTypeUpdateExecution:
         assert len(updates) == 1
         assert updates[0]["resource_name"] == "customers/cust/campaigns/cmp_001/adGroupAds/ag_001/criteria/kw1"
         assert updates[0]["match_type"] == "PHRASE"
+
+
+class TestOverrideUnknownActionType:
+    """override_campaign_action must reject unknown action_type with 422."""
+
+    def test_unknown_action_type_returns_422(
+        self, mock_adapter, client, mock_gads_and_guard
+    ):
+        """
+        When action_type is not a recognised operation, the override endpoint
+        must return 422 — not silently write an audit log and return 200.
+        The else-branch calls guard.check() but executes nothing.
+        """
+        mock_guard, mock_gads = mock_gads_and_guard
+        campaign_uuid = mock_adapter.get_campaign.return_value["id"]
+
+        response = client.post(
+            f"/campaigns/{campaign_uuid}/override",
+            json={
+                "action_type": "unknown_nonsense_action",
+            },
+        )
+
+        # Must reject with 422, not 200
+        assert response.status_code == 422
+        # Audit log must NOT be written — no operation occurred
+        mock_adapter.write_audit_log.assert_not_called()
+        # No Google Ads client method should have been called
+        mock_gads.add_keywords.assert_not_called()
+        mock_gads.remove_keywords.assert_not_called()

@@ -355,11 +355,11 @@ class TestApproveActionProposalTypes:
 class TestOverrideCampaignAction:
     """Tests for POST /campaigns/{uuid}/override."""
 
-    def test_override_blocked_action_returns_403_via_real_guard(self, monkeypatch):
-        """Actions blocked by the capability guard return 403 Forbidden."""
-        # Uses the real CapabilityGuard so deny-by-default rules apply.
-        # google_ads.campaign_delete matches the deny pattern google_ads.delete_*
-        # so CapabilityDenied is raised and returns 403.
+    def test_override_unknown_action_type_returns_422(self, monkeypatch):
+        """Unknown action_type values return 422 — they are validated before guard check."""
+        # Before the fix, unknown action_type fell through to guard.check() which
+        # could inadvertently allow unrecognised operations if the guard didn't deny them.
+        # Now unknown types are rejected with 422 before guard.check() is called.
         mock = MagicMock()
         monkeypatch.setattr("src.api.routes.campaigns.PostgresAdapter", lambda: mock)
 
@@ -377,8 +377,8 @@ class TestOverrideCampaignAction:
             json={"action_type": "campaign_delete"},
         )
 
-        assert response.status_code == 403
-        assert "not allowed" in response.json()["detail"].lower() or "denied" in response.json()["detail"].lower()
+        assert response.status_code == 422
+        assert "unknown action type" in response.json()["detail"].lower()
 
     def test_override_returns_404_when_campaign_not_found(self, mock_adapter, client):
         """Returns 404 when no campaign exists with the given UUID."""

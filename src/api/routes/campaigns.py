@@ -363,7 +363,10 @@ def override_campaign_action(
                 updates=body.updates or [],
             )
         else:
-            guard.check(f"google_ads.{body.action_type}")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown action type: {body.action_type!r}",
+            )
     except CapabilityDenied:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
