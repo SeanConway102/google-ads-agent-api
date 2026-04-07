@@ -14,6 +14,7 @@ from src.api.schemas import (
     CampaignListResponse,
     CampaignResponse,
     CampaignStatus,
+    CampaignUpdate,
     OverrideResponse,
 )
 from src.agents.debate_state import Phase
@@ -48,6 +49,9 @@ def _campaign_to_response(row: dict) -> CampaignResponse:
         created_at=row["created_at"],
         last_synced_at=row.get("last_synced_at"),
         last_reviewed_at=row.get("last_reviewed_at"),
+        hitl_enabled=row.get("hitl_enabled", False),
+        owner_email=row.get("owner_email"),
+        hitl_threshold=row.get("hitl_threshold", "budget>20pct,keyword_add>5"),
     )
 
 
@@ -96,6 +100,38 @@ def delete_campaign(campaign_id: Annotated[UUID, Path(description="Campaign UUID
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
     _adapter().delete_campaign(campaign_id)
+
+
+@router.patch("/{campaign_id}", response_model=CampaignResponse)
+def update_campaign(
+    campaign_id: Annotated[UUID, Path(description="Campaign UUID")],
+    body: CampaignUpdate,
+) -> CampaignResponse:
+    """Update mutable campaign fields. Currently supports HITL settings."""
+    row = _adapter().get_campaign(campaign_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+
+    # Build dynamic UPDATE
+    updates = {}
+    if body.hitl_enabled is not None:
+        updates["hitl_enabled"] = body.hitl_enabled
+    if body.owner_email is not None:
+        updates["owner_email"] = body.owner_email
+    if body.hitl_threshold is not None:
+        updates["hitl_threshold"] = body.hitl_threshold
+
+    if updates:
+        set_clauses = ", ".join(f"{k} = %s" for k in updates)
+        values = tuple(updates.values())
+        _adapter().execute(
+            f"UPDATE campaigns SET {set_clauses}, updated_at = NOW() WHERE id = %s",
+            values + (str(campaign_id),),
+        )
+
+    # Re-fetch and return updated row
+    updated_row = _adapter().get_campaign(campaign_id)
+    return _campaign_to_response(updated_row)
 
 
 @router.get("/{campaign_id}/insights", response_model=CampaignInsights)

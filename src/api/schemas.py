@@ -66,6 +66,17 @@ class CampaignResponse(BaseModel):
     created_at: datetime
     last_synced_at: Optional[datetime]
     last_reviewed_at: Optional[datetime]
+    # HITL fields
+    hitl_enabled: bool = False
+    owner_email: Optional[str] = None
+    hitl_threshold: str = "budget>20pct,keyword_add>5"
+
+
+class CampaignUpdate(BaseModel):
+    """Request body for PATCH /campaigns/{uuid} — update HITL and other mutable fields."""
+    hitl_enabled: Optional[bool] = None
+    owner_email: Optional[str] = None
+    hitl_threshold: Optional[str] = None
 
 
 class CampaignListResponse(BaseModel):
