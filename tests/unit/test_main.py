@@ -91,6 +91,17 @@ class TestCreateApp:
             data = response.json()
             assert "openapi" in data
             assert "info" in data
+            assert "version" in data["info"]  # version field exists in info object
+
+    def test_openapi_schema_has_paths(self, mock_api_key, mock_settings_env):
+        """OpenAPI schema includes a paths object with at least the health endpoint."""
+        app = create_app()
+        from starlette.testclient import TestClient
+        with TestClient(app) as client:
+            response = client.get("/openapi.json")
+            data = response.json()
+            assert "paths" in data
+            assert "/health" in data["paths"]
 
 
 class TestRouteMounting:
@@ -161,5 +172,16 @@ class TestMiddlewareApplied:
         from starlette.testclient import TestClient
         with TestClient(app) as client:
             response = client.get("/campaigns", headers={"X-API-Key": "test-secret-key"})
-            # Should not be 401 — may be 200 or some other error (DB not available)
+            # Should not be 401 — may be 200 (if DB available) or 500 (if DB not available)
             assert response.status_code != 401
+
+    def test_unauthenticated_request_returns_json_error_structure(self, mock_api_key, mock_settings_env):
+        """Unauthenticated requests (no API key) return JSON error with error and detail fields."""
+        app = create_app()
+        from starlette.testclient import TestClient
+        with TestClient(app) as client:
+            response = client.get("/campaigns")
+            assert response.status_code == 401
+            body = response.json()
+            assert "error" in body
+            assert "detail" in body
