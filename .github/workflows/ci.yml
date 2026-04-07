@@ -28,6 +28,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run unit tests
+        env:
+          TEST_ADMIN_API_KEY: test-ci-key
         run: |
           source .venv/bin/activate
           pytest tests/unit/ -v --tb=short
