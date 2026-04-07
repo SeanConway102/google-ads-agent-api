@@ -173,3 +173,126 @@ class TestCoordinatorAgent:
         # No verdict tag → defaults to continue_debate
         assert result.round_number == 2
         assert result.phase == Phase.GREEN_PROPOSES
+
+    @pytest.mark.asyncio
+    async def test_evaluate_uses_settings_max_rounds_when_not_provided(self):
+        """When max_rounds is not passed, _resolve_max_rounds falls back to settings."""
+        from unittest.mock import patch
+
+        mock_settings = MagicMock()
+        mock_settings.MAX_DEBATE_ROUNDS = 12
+
+        cid = uuid4()
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(
+                choices=[MagicMock(message=MagicMock(content="[CONTINUE_DEBATE] Keep going."))]
+            )
+        )
+
+        with patch("src.agents.coordinator.get_settings", return_value=mock_settings):
+            agent = CoordinatorAgent(llm=mock_llm)  # no max_rounds
+            state = DebateState(
+                cycle_date="2026-04-06",
+                campaign_id=cid,
+                phase=Phase.COORDINATOR_EVALUATES,
+                round_number=11,
+                green_proposals=[{"type": "keyword_add"}],
+                red_objections=[],
+            )
+            result = await agent.evaluate(state, {}, [])
+            # max_rounds=12, round 11 < 12 → should continue (not escalate)
+            assert result.phase == Phase.GREEN_PROPOSES
+            assert result.round_number == 12
+
+    @pytest.mark.asyncio
+    async def test_evaluate_uses_chat_completion_when_llm_is_none(self):
+        """When no LLM is injected, evaluate() calls chat_completion from adapter."""
+        from unittest.mock import patch
+
+        mock_settings = MagicMock()
+        mock_settings.MAX_DEBATE_ROUNDS = 5
+
+        async def fake_chat_completion(messages, **kwargs):
+            return MagicMock(
+                choices=[
+                    MagicMock(message=MagicMock(content="[CONSENSUS_REACHED] All good."))
+                ]
+            )
+
+        with patch("src.llm.adapter.chat_completion", fake_chat_completion), \
+             patch("src.agents.coordinator.get_settings", return_value=mock_settings), \
+             patch("src.config.get_settings", return_value=mock_settings):
+            agent = CoordinatorAgent()  # no llm
+            cid = uuid4()
+            state = DebateState(
+                cycle_date="2026-04-06",
+                campaign_id=cid,
+                phase=Phase.COORDINATOR_EVALUATES,
+                round_number=1,
+                green_proposals=[{"type": "keyword_add"}],
+                red_objections=[],
+            )
+            result = await agent.evaluate(state, {}, [])
+            assert result.consensus_reached is True
+
+    @pytest.mark.asyncio
+    async def test_evaluate_raises_when_llm_returns_empty_choices(self):
+        """When LLM returns no choices, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(return_value=MagicMock(choices=[]))
+        agent = CoordinatorAgent(llm=mock_llm, max_rounds=5)  # avoid get_settings() call
+        cid = uuid4()
+        state = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            round_number=1,
+            green_proposals=[],
+            red_objections=[],
+        )
+
+        with pytest.raises(RuntimeError, match="LLM returned empty response"):
+            await agent.evaluate(state, {}, [])
+
+    @pytest.mark.asyncio
+    async def test_evaluate_raises_when_message_is_none(self):
+        """When LLM choice has no message, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=None)])
+        )
+        agent = CoordinatorAgent(llm=mock_llm, max_rounds=5)
+        cid = uuid4()
+        state = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            round_number=1,
+            green_proposals=[],
+            red_objections=[],
+        )
+
+        with pytest.raises(RuntimeError, match="LLM returned choice with no message"):
+            await agent.evaluate(state, {}, [])
+
+    @pytest.mark.asyncio
+    async def test_evaluate_raises_when_content_is_none(self):
+        """When LLM message content is None, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=MagicMock(content=None))])
+        )
+        agent = CoordinatorAgent(llm=mock_llm, max_rounds=5)
+        cid = uuid4()
+        state = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            round_number=1,
+            green_proposals=[],
+            red_objections=[],
+        )
+
+        with pytest.raises(RuntimeError, match="LLM returned None content"):
+            await agent.evaluate(state, {}, [])

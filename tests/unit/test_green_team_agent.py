@@ -152,3 +152,97 @@ class TestGreenTeamAgent:
         assert isinstance(result, list)
         assert len(result) == 1
         assert result[0].get("type") == "raw"
+
+    @pytest.mark.asyncio
+    async def test_propose_returns_raw_when_bracket_but_invalid_json(self):
+        """When response has [...] but it's not valid JSON, falls through to raw return."""
+        mock_llm = MagicMock()
+        # Content has [...test...] which matches regex but is not valid JSON
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(
+                choices=[
+                    MagicMock(message=MagicMock(content="The Green Team proposes [something invalid] here."))
+                ]
+            )
+        )
+        agent = GreenTeamAgent(llm=mock_llm)
+        result = await agent.propose(campaign_data={}, wiki_context=[], previous_objections=[])
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].get("type") == "raw"
+        assert "something invalid" in result[0].get("content", "")
+
+    @pytest.mark.asyncio
+    async def test_propose_uses_chat_completion_when_llm_is_none(self):
+        """When no LLM is injected, propose() calls chat_completion from adapter."""
+        from unittest.mock import patch
+
+        async def fake_chat_completion(messages, **kwargs):
+            return MagicMock(
+                choices=[
+                    MagicMock(
+                        message=MagicMock(
+                            content='[{"type": "keyword_add", "target": "shoes", "priority": "high"}]'
+                        )
+                    )
+                ]
+            )
+
+        # chat_completion is imported inside propose() from src.llm.adapter
+        with patch("src.llm.adapter.chat_completion", fake_chat_completion):
+            agent = GreenTeamAgent()  # no llm injected
+            result = await agent.propose(
+                campaign_data={"clicks": 10},
+                wiki_context=[],
+                previous_objections=[],
+            )
+            assert len(result) == 1
+            assert result[0]["type"] == "keyword_add"
+
+    @pytest.mark.asyncio
+    async def test_propose_raises_when_llm_returns_empty_choices(self):
+        """When LLM returns no choices, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(return_value=MagicMock(choices=[]))
+        agent = GreenTeamAgent(llm=mock_llm)
+
+        with pytest.raises(RuntimeError, match="LLM returned empty response"):
+            await agent.propose(
+                campaign_data={"clicks": 10},
+                wiki_context=[],
+                previous_objections=[],
+            )
+
+    @pytest.mark.asyncio
+    async def test_propose_raises_when_message_is_none(self):
+        """When LLM choice has no message attribute, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=None)])
+        )
+        agent = GreenTeamAgent(llm=mock_llm)
+
+        with pytest.raises(RuntimeError, match="LLM returned choice with no message"):
+            await agent.propose(
+                campaign_data={"clicks": 10},
+                wiki_context=[],
+                previous_objections=[],
+            )
+
+    @pytest.mark.asyncio
+    async def test_propose_raises_when_content_is_none(self):
+        """When LLM message content is None, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(
+                choices=[MagicMock(message=MagicMock(content=None))]
+            )
+        )
+        agent = GreenTeamAgent(llm=mock_llm)
+
+        with pytest.raises(RuntimeError, match="LLM returned None content"):
+            await agent.propose(
+                campaign_data={"clicks": 10},
+                wiki_context=[],
+                previous_objections=[],
+            )

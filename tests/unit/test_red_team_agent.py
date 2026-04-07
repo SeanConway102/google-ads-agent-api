@@ -152,3 +152,99 @@ class TestRedTeamAgent:
         )
         assert result[0]["verdict"] == "approve"
         assert len(result[0]["objections"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_challenge_returns_raw_when_bracket_but_invalid_json(self):
+        """When response has [...] but it's not valid JSON, falls through to raw return."""
+        mock_llm = MagicMock()
+        # Content has [...] which matches regex but is not valid JSON
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(
+                choices=[
+                    MagicMock(message=MagicMock(content="Red Team review [status: pending] — needs clarification."))
+                ]
+            )
+        )
+        agent = RedTeamAgent(llm=mock_llm)
+        result = await agent.challenge(
+            green_proposals=[{"type": "bid_update"}],
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].get("type") == "raw"
+
+    @pytest.mark.asyncio
+    async def test_challenge_uses_chat_completion_when_llm_is_none(self):
+        """When no LLM is injected, challenge() calls chat_completion from adapter."""
+        from unittest.mock import patch
+
+        async def fake_chat_completion(messages, **kwargs):
+            return MagicMock(
+                choices=[
+                    MagicMock(
+                        message=MagicMock(
+                            content='[{"proposal_id": "0", "verdict": "object", "objections": [{"objection": "too risky", "evidence": "low margin"}], "reasoning": "financial risk"}]'
+                        )
+                    )
+                ]
+            )
+
+        with patch("src.llm.adapter.chat_completion", fake_chat_completion):
+            agent = RedTeamAgent()  # no llm injected
+            result = await agent.challenge(
+                green_proposals=[{"type": "keyword_add", "target": "shoes"}],
+                campaign_data={},
+                wiki_context=[],
+            )
+            assert len(result) == 1
+            assert result[0]["verdict"] == "object"
+
+    @pytest.mark.asyncio
+    async def test_challenge_raises_when_llm_returns_empty_choices(self):
+        """When LLM returns no choices, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(return_value=MagicMock(choices=[]))
+        agent = RedTeamAgent(llm=mock_llm)
+
+        with pytest.raises(RuntimeError, match="LLM returned empty response"):
+            await agent.challenge(
+                green_proposals=[{"type": "keyword_add"}],
+                campaign_data={},
+                wiki_context=[],
+            )
+
+    @pytest.mark.asyncio
+    async def test_challenge_raises_when_message_is_none(self):
+        """When LLM choice has no message attribute, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=None)])
+        )
+        agent = RedTeamAgent(llm=mock_llm)
+
+        with pytest.raises(RuntimeError, match="LLM returned choice with no message"):
+            await agent.challenge(
+                green_proposals=[{"type": "keyword_add"}],
+                campaign_data={},
+                wiki_context=[],
+            )
+
+    @pytest.mark.asyncio
+    async def test_challenge_raises_when_content_is_none(self):
+        """When LLM message content is None, raises RuntimeError."""
+        mock_llm = MagicMock()
+        mock_llm.chat_completion = AsyncMock(
+            return_value=MagicMock(
+                choices=[MagicMock(message=MagicMock(content=None))]
+            )
+        )
+        agent = RedTeamAgent(llm=mock_llm)
+
+        with pytest.raises(RuntimeError, match="LLM returned None content"):
+            await agent.challenge(
+                green_proposals=[{"type": "keyword_add"}],
+                campaign_data={},
+                wiki_context=[],
+            )
