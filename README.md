@@ -32,7 +32,7 @@ Autonomous headless Google Ads optimization agent with a three-agent adversarial
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/YOUR_REPO/google-ads-agent-api.git /opt/ads-agent
+git clone https://github.com/SeanConway102/google-ads-agent-api.git /opt/ads-agent
 cd /opt/ads-agent
 python3.12 -m venv venv
 source venv/bin/activate

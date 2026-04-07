@@ -1,6 +1,6 @@
 #!/bin/bash
 # setup_droplet.sh — Provisions a Digital Ocean droplet for the Google Ads Agent
-# Usage: curl -sSL https://raw.githubusercontent.com/YOUR_REPO/google-ads-agent-api/main/setup_droplet.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/SeanConway102/google-ads-agent-api/main/setup_droplet.sh | bash
 
 set -e
 
@@ -44,7 +44,7 @@ if [ -d "$APP_DIR/.git" ]; then
     cd "$APP_DIR" && sudo git pull
 else
     echo "  Cloning fresh repo to $APP_DIR"
-    sudo git clone https://github.com/YOUR_REPO/google-ads-agent-api.git "$APP_DIR"
+    sudo git clone https://github.com/SeanConway102/google-ads-agent-api.git "$APP_DIR"
 fi
 
 cd "$APP_DIR"
