@@ -562,6 +562,39 @@ class TestEmailReplyWebhookHitlDisabled:
         assert response.status_code == 404
         mock_adapter.save_debate_state.assert_not_called()
 
+    def test_reject_returns_404_when_hitl_disabled(self, mock_adapter, client):
+        """
+        When the campaign has hitl_enabled=False, reject replies must also be rejected.
+        """
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["hitl_enabled"] = False
+
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "cycle_date": "2026-04-07",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        response = client.post(
+            "/email-replies",
+            json={
+                "email_from": "owner@example.com",
+                "subject": "Re: [AdsAgent] Action required",
+                "body": "no",
+            },
+        )
+
+        assert response.status_code == 404
+        mock_adapter.save_debate_state.assert_not_called()
+
 
 class TestEmailReplyWebhookQuestion:
     """Owner asks a question → webhook fires question_asked event, returns 200."""
