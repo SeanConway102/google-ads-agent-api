@@ -82,25 +82,32 @@ python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
 
 ## API Endpoints
 
-All endpoints (except `/health`) require `X-API-Key` header.
+All endpoints (except `/health` and `/webhooks/inbound-email`) require `X-API-Key` header.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check (no auth) |
 | GET | `/campaigns` | List all campaigns |
 | POST | `/campaigns` | Create a campaign |
-| GET | `/campaigns/{id}` | Get a campaign |
-| PATCH | `/campaigns/{id}` | Update HITL settings |
-| DELETE | `/campaigns/{id}` | Delete a campaign |
-| GET | `/campaigns/{id}/hitl/proposals` | List HITL proposals |
-| GET | `/campaigns/{id}/hitl/proposals/{proposal_id}` | Get single HITL proposal |
-| POST | `/campaigns/{id}/hitl/proposals/{proposal_id}/decide` | Approve/reject proposal |
-| GET | `/wiki` | Search wiki entries |
+| GET | `/campaigns/{campaign_id}` | Get a campaign |
+| PATCH | `/campaigns/{campaign_id}` | Update HITL settings |
+| DELETE | `/campaigns/{campaign_id}` | Delete a campaign |
+| GET | `/campaigns/{campaign_id}/insights` | Get campaign with latest debate state |
+| POST | `/campaigns/{campaign_id}/approve` | Approve pending proposals (HITL) |
+| POST | `/campaigns/{campaign_id}/override` | Force action bypassing debate |
+| GET | `/campaigns/{campaign_id}/hitl/proposals` | List HITL proposals |
+| GET | `/campaigns/{campaign_id}/hitl/proposals/{proposal_id}` | Get single HITL proposal |
+| POST | `/campaigns/{campaign_id}/hitl/proposals/{proposal_id}/decide` | Approve/reject HITL proposal |
+| GET | `/wiki` | List all wiki entries |
+| GET | `/wiki/search` | Search wiki entries by query |
 | POST | `/wiki` | Create wiki entry |
+| DELETE | `/wiki/{entry_id}` | Delete wiki entry |
 | GET | `/audit` | Query audit logs |
 | POST | `/webhooks` | Register webhook |
 | GET | `/webhooks` | List webhooks |
-| DELETE | `/webhooks/{id}` | Delete webhook |
+| DELETE | `/webhooks/{webhook_id}` | Delete webhook |
+| POST | `/webhooks/inbound-email` | Resend inbound email webhook (no auth) |
+| POST | `/email-replies` | Process email reply to HITL proposal |
 | POST | `/research/trigger` | Manually trigger research cycle |
 
 ## Daily Research Cycle
@@ -162,7 +169,7 @@ For high-impact proposals (budget changes >20%, keyword adds >5, keyword removal
 | `owner_email` | Email address to send approval requests |
 | `hitl_threshold` | Threshold rules string (default: `budget>20pct,keyword_add>5`) |
 
-Update via `PATCH /campaigns/{id}`:
+Update via `PATCH /campaigns/{campaign_id}`:
 ```json
 {
   "hitl_enabled": true,
@@ -174,14 +181,14 @@ Update via `PATCH /campaigns/{id}`:
 
 ```bash
 # List pending proposals
-GET /campaigns/{id}/hitl/proposals
+GET /campaigns/{campaign_id}/hitl/proposals
 
 # Approve a proposal
-POST /campaigns/{id}/hitl/proposals/{proposal_id}/decide
+POST /campaigns/{campaign_id}/hitl/proposals/{proposal_id}/decide
 {"decision": "approved", "notes": "LGTM"}
 
 # Reject a proposal
-POST /campaigns/{id}/hitl/proposals/{proposal_id}/decide
+POST /campaigns/{campaign_id}/hitl/proposals/{proposal_id}/decide
 {"decision": "rejected", "notes": "Too aggressive"}
 ```
 

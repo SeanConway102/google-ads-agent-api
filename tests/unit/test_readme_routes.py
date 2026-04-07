@@ -2,8 +2,6 @@
 RED: README API path verification test.
 Routes documented in README must match what the router actually mounts.
 """
-import pytest
-from fastapi.routing import APIRoute
 from src.main import app
 
 
@@ -37,3 +35,35 @@ def test_readme_audit_and_webhook_routes_exist():
     routes = {r.path: r for r in app.routes if hasattr(r, 'path')}
     assert "/audit" in routes, "GET /audit not found"
     assert "/webhooks" in routes, "/webhooks not found"
+
+
+def test_all_mounted_routes_are_documented_in_readme():
+    """
+    Every route mounted in the FastAPI app must be documented in README.md.
+    This ensures API surface and documentation stay in sync.
+    """
+    import pathlib
+    readme_path = pathlib.Path(__file__).parents[2] / "README.md"
+    readme_content = readme_path.read_text(encoding="utf-8")
+
+    # Collect all non-exempt mounted routes (skip docs/health/openapi/redoc)
+    exempt_paths = {"/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc", "/health"}
+    routes = {
+        r.path: list(r.methods - {"HEAD", "OPTIONS"})
+        for r in app.routes
+        if hasattr(r, 'methods')
+    }
+
+    undocumented = []
+    for path, methods in routes.items():
+        if path in exempt_paths:
+            continue
+        # Simple substring check — README uses literal paths like /campaigns/{id}
+        if path not in readme_content:
+            undocumented.append(f"{list(methods)} {path}")
+
+    assert not undocumented, (
+        f"The following routes are mounted but NOT documented in README.md:\n"
+        + "\n".join(f"  {u}" for u in undocumented)
+        + "\n\nUpdate README.md API Endpoints table to include these routes."
+    )
