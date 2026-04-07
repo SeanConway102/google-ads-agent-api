@@ -160,7 +160,7 @@ class WebhookService:
     """
 
     def __init__(self, db: PostgresAdapter | None = None) -> None:
-        self._db = db or PostgresAdapter()
+        self._db = db  # Lazily initialized in dispatch to avoid settings errors in unit tests
 
     def dispatch(self, event_type: str, payload: dict[str, Any]) -> None:
         """
@@ -169,6 +169,15 @@ class WebhookService:
         Failures are logged but do not raise.
         """
         try:
+            if self._db is None:
+                try:
+                    self._db = PostgresAdapter()
+                except Exception as exc:
+                    logger.warning(
+                        "webhook_service_db_init_failed",
+                        extra={"event": event_type, "error": str(exc)},
+                    )
+                    return
             webhooks = self._db.list_webhooks()
             subscribed = [
                 wh for wh in webhooks
@@ -194,6 +203,7 @@ class WebhookService:
                     )
         except Exception as exc:
             logger.error("webhook_dispatch_error", extra={"event": event_type, "error": str(exc)})
+
 
 
 async def dispatch_event(

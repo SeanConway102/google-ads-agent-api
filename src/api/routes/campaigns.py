@@ -22,6 +22,7 @@ from src.agents.debate_state import Phase
 from src.db.postgres_adapter import PostgresAdapter
 from src.mcp.capability_guard import CapabilityDenied, CapabilityGuard
 from src.mcp.google_ads_client import GoogleAdsClient
+from src.services.webhook_service import WebhookService
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -94,6 +95,12 @@ def create_campaign(body: CampaignCreate) -> CampaignResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error while creating campaign",
         ) from exc
+    WebhookService().dispatch("campaign_created", {
+        "id": str(row["id"]),
+        "campaign_id": row["campaign_id"],
+        "customer_id": row["customer_id"],
+        "name": row["name"],
+    })
     return _campaign_to_response(row)
 
 
@@ -113,6 +120,12 @@ def delete_campaign(campaign_id: Annotated[UUID, Path(description="Campaign UUID
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
     _adapter().delete_campaign(campaign_id)
+    WebhookService().dispatch("campaign_deleted", {
+        "id": str(row["id"]),
+        "campaign_id": row["campaign_id"],
+        "customer_id": row["customer_id"],
+        "name": row["name"],
+    })
 
 
 @router.patch("/{campaign_id}", response_model=CampaignResponse)
