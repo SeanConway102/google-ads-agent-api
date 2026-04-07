@@ -35,6 +35,9 @@ def mock_guard_and_client(monkeypatch):
 
     mock_gads = MagicMock()
     mock_gads.add_keywords.return_value = ["kw1"]
+    mock_gads.remove_keywords.return_value = []
+    mock_gads.update_keyword_bids.return_value = []
+    mock_gads.update_keyword_match_types.return_value = []
 
     def patched_guard():
         return mock_guard
@@ -286,6 +289,236 @@ class TestEmailReplyWebhookNotFound:
 
         assert response.status_code == 404
         assert "pending" in response.json()["detail"].lower() or "no proposal" in response.json()["detail"].lower()
+
+
+class TestEmailReplyApproveExecutesAllProposalTypes:
+    """
+    When owner approves via email reply, ALL proposal types in green_proposals
+    must be executed — not just keyword_add.
+
+    BUG: handle_email_reply approve branch only handles keyword_add.
+    keyword_remove, bid_update, and match_type_update are silently skipped.
+    """
+
+    def test_approve_keyword_remove_executes_gads_remove_keywords(
+        self, mock_adapter, client, mock_guard_and_client
+    ):
+        """
+        An approval reply must call gads_client.remove_keywords for
+        keyword_remove proposals.
+        """
+        mock_guard, mock_gads = mock_guard_and_client
+        mock_gads.remove_keywords.return_value = ["customers/cust/keywords/kw1"]
+
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        debate_row = {
+            "id": 1,
+            "cycle_date": "2026-04-07",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [
+                {
+                    "type": "keyword_remove",
+                    "resource_names": ["customers/cust/keywords/kw1"],
+                },
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
+
+        response = client.post(
+            "/email-replies",
+            json={
+                "email_from": "owner@example.com",
+                "subject": "Re: [AdsAgent] Action required",
+                "body": "yes",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "approved"
+        mock_gads.remove_keywords.assert_called_once()
+        call_kwargs = mock_gads.remove_keywords.call_args
+        assert call_kwargs.kwargs.get("customer_id") == "cust_001"
+        assert call_kwargs.kwargs.get("keyword_resource_names") == ["customers/cust/keywords/kw1"]
+
+    def test_approve_bid_update_executes_gads_update_bids(
+        self, mock_adapter, client, mock_guard_and_client
+    ):
+        """
+        An approval reply must call gads_client.update_keyword_bids for
+        bid_update proposals.
+        """
+        mock_guard, mock_gads = mock_guard_and_client
+        mock_gads.update_keyword_bids.return_value = []
+
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        debate_row = {
+            "id": 1,
+            "cycle_date": "2026-04-07",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [
+                {
+                    "type": "bid_update",
+                    "updates": [
+                        {
+                            "resource_name": "customers/cust/campaigns/cmp_001/adGroupAds/ag_001/criteria/kw1",
+                            "cpc_bid_micros": 115000,
+                        },
+                    ],
+                },
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
+
+        response = client.post(
+            "/email-replies",
+            json={
+                "email_from": "owner@example.com",
+                "subject": "Re: [AdsAgent] Action required",
+                "body": "approve",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "approved"
+        mock_gads.update_keyword_bids.assert_called_once()
+        call_kwargs = mock_gads.update_keyword_bids.call_args
+        assert call_kwargs.kwargs.get("customer_id") == "cust_001"
+        updates = call_kwargs.kwargs.get("updates", [])
+        assert len(updates) == 1
+        assert updates[0]["resource_name"] == "customers/cust/campaigns/cmp_001/adGroupAds/ag_001/criteria/kw1"
+        assert updates[0]["cpc_bid_micros"] == 115000
+
+    def test_approve_match_type_update_executes_gads_update_match_types(
+        self, mock_adapter, client, mock_guard_and_client
+    ):
+        """
+        An approval reply must call gads_client.update_keyword_match_types
+        for match_type_update proposals.
+        """
+        mock_guard, mock_gads = mock_guard_and_client
+        mock_gads.update_keyword_match_types.return_value = []
+
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        debate_row = {
+            "id": 1,
+            "cycle_date": "2026-04-07",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [
+                {
+                    "type": "match_type_update",
+                    "updates": [
+                        {
+                            "resource_name": "customers/cust/campaigns/cmp_001/adGroupAds/ag_001/criteria/kw1",
+                            "match_type": "PHRASE",
+                        },
+                    ],
+                },
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
+
+        response = client.post(
+            "/email-replies",
+            json={
+                "email_from": "owner@example.com",
+                "subject": "Re: [AdsAgent] Action required",
+                "body": "yes",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "approved"
+        mock_gads.update_keyword_match_types.assert_called_once()
+        call_kwargs = mock_gads.update_keyword_match_types.call_args
+        assert call_kwargs.kwargs.get("customer_id") == "cust_001"
+        updates = call_kwargs.kwargs.get("updates", [])
+        assert len(updates) == 1
+        assert updates[0]["match_type"] == "PHRASE"
+
+    def test_approve_mixed_proposals_executes_all_three_types(
+        self, mock_adapter, client, mock_guard_and_client
+    ):
+        """
+        A single approval must execute keyword_add, keyword_remove,
+        bid_update, AND match_type_update when all are present.
+        """
+        mock_guard, mock_gads = mock_guard_and_client
+        mock_gads.add_keywords.return_value = []
+        mock_gads.remove_keywords.return_value = []
+        mock_gads.update_keyword_bids.return_value = []
+        mock_gads.update_keyword_match_types.return_value = []
+
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        debate_row = {
+            "id": 1,
+            "cycle_date": "2026-04-07",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [
+                {"type": "keyword_add", "ad_group_id": "ag_001", "keywords": ["shoes"]},
+                {"type": "keyword_remove", "resource_names": ["customers/cust/keywords/kw_old"]},
+                {
+                    "type": "bid_update",
+                    "updates": [{"resource_name": "kw1", "cpc_bid_micros": 150000}],
+                },
+                {
+                    "type": "match_type_update",
+                    "updates": [{"resource_name": "kw2", "match_type": "PHRASE"}],
+                },
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
+
+        response = client.post(
+            "/email-replies",
+            json={
+                "email_from": "owner@example.com",
+                "subject": "Re: [AdsAgent] Action required",
+                "body": "go ahead",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "approved"
+        mock_gads.add_keywords.assert_called_once()
+        mock_gads.remove_keywords.assert_called_once()
+        mock_gads.update_keyword_bids.assert_called_once()
+        mock_gads.update_keyword_match_types.assert_called_once()
 
 
 class TestEmailReplyWebhookQuestion:
