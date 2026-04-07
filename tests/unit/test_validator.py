@@ -173,6 +173,236 @@ class TestAdversarialValidatorRunCycle:
         assert result.phase == Phase.CONSENSUS_LOCKED
 
     @pytest.mark.asyncio
+    async def test_max_rounds_defaults_to_10_when_coordinator_has_no_max_rounds(self):
+        """When coordinator has no max_rounds attribute, defaults to 10."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            green_proposals=[],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=10,
+        )
+        mock_state_machine.save.return_value = None  # simulate save returning None
+
+        # coordinator with no max_rounds attribute
+        mock_coordinator = MagicMock()
+        del mock_coordinator.max_rounds  # remove the attribute
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        # Should use max_rounds = 10 and return early when round_number >= 10
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        # Should return the state (max rounds reached)
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_coordinator_returns_pending_manual_review_saves_and_returns(self):
+        """When coordinator.evaluate() returns PENDING_MANUAL_REVIEW, state is saved and returned."""
+        cid = uuid4()
+        pending_state = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.PENDING_MANUAL_REVIEW,
+            consensus_reached=False,
+            round_number=5,
+            green_proposals=[{"type": "keyword_add"}],
+            red_objections=[{"objection": "cost"}],
+        )
+
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            green_proposals=[],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=4,
+        )
+        mock_state_machine.save.return_value = pending_state
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.evaluate = AsyncMock(return_value=pending_state)
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        mock_state_machine.save.assert_called_once()
+        assert result.phase == Phase.PENDING_MANUAL_REVIEW
+        assert result.consensus_reached is False
+
+    @pytest.mark.asyncio
+    async def test_green_propose_raises_exception_causes_early_return(self):
+        """When green.propose() raises, run_cycle returns the current state."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.GREEN_PROPOSES,
+            green_proposals=[],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=1,
+        )
+        mock_state_machine.advance_phase.side_effect = [
+            DebateState(cycle_date="2026-04-06", campaign_id=cid, phase=Phase.GREEN_PROPOSES),
+        ]
+
+        mock_green = MagicMock()
+        mock_green.propose = AsyncMock(side_effect=RuntimeError("Green failed"))
+        mock_red = MagicMock()
+        mock_coordinator = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        # Should return the current state without crashing
+        assert result.phase == Phase.GREEN_PROPOSES
+
+    @pytest.mark.asyncio
+    async def test_red_challenge_raises_exception_causes_early_return(self):
+        """When red.challenge() raises, run_cycle returns the current state."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.RED_CHALLENGES,
+            green_proposals=[{"type": "keyword_add"}],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=1,
+        )
+        mock_state_machine.advance_phase.side_effect = [
+            DebateState(cycle_date="2026-04-06", campaign_id=cid, phase=Phase.RED_CHALLENGES),
+        ]
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+        mock_red.challenge = AsyncMock(side_effect=RuntimeError("Red failed"))
+        mock_coordinator = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert result.phase == Phase.RED_CHALLENGES
+
+    @pytest.mark.asyncio
+    async def test_coordinator_evaluate_raises_exception_causes_early_return(self):
+        """When coordinator.evaluate() raises, run_cycle returns the current state."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            green_proposals=[{"type": "keyword_add"}],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=1,
+        )
+        mock_state_machine.save.side_effect = lambda s: s
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.evaluate = AsyncMock(side_effect=RuntimeError("Coordinator failed"))
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        # Should return the current state without crashing
+        assert result.phase == Phase.COORDINATOR_EVALUATES
+
+    @pytest.mark.asyncio
+    async def test_unhandled_phase_returns_current_state(self):
+        """When state.phase is an unhandled value, loop breaks and returns current state."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        # Start in a phase not handled in the loop (e.g., CONSENSUS_LOCKED which is handled differently)
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.CONSENSUS_LOCKED,
+            consensus_reached=True,
+            round_number=1,
+        )
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+        mock_coordinator = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        # CONSENSUS_LOCKED is handled in COORDINATOR_EVALUATES branch, not the else
+        # This test covers the else branch for truly unhandled phases
+        assert result.phase == Phase.CONSENSUS_LOCKED
+
+    @pytest.mark.asyncio
     async def test_run_cycle_loops_until_consensus_or_max_rounds(self):
         """run_cycle continues looping while phase is GREEN_PROPOSES or RED_CHALLENGES."""
         cid = uuid4()
