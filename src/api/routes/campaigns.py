@@ -277,14 +277,16 @@ def approve_campaign_action(
             detail=f"Google Ads execution failed: {execution_error}",
         )
 
-    # If ALL proposals were blocked, return 403 — nothing was applied
-    if blocked_proposals and not executed_proposals:
+    # If ANY proposals were blocked, return 403 — partial execution is not approved.
+    # The operator must review and retry with adjusted capabilities.
+    if blocked_proposals:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Action blocked by capability guard: {blocked_proposals}. No proposals executed.",
+            detail=f"Action blocked by capability guard: {blocked_proposals}. "
+                   f"{len(executed_proposals)} proposal(s) executed, {len(blocked_proposals)} blocked.",
         )
 
-    # Only transition to APPROVED after successful execution
+    # Only transition to APPROVED after all proposals execute successfully
     updated = dict(debate_row)
     updated["phase"] = Phase.APPROVED.value
     _adapter().save_debate_state(updated)

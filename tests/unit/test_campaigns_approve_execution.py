@@ -131,10 +131,18 @@ class TestCampaignsApproveExecution:
                 "Execution errors must not be reported as successful."
             )
 
-    def test_partial_block_still_reports_which_proposals_executed(self, mock_adapter):
+    def test_partial_block_means_no_approved_status(self, mock_adapter):
         """
-        When some proposals execute and others are blocked, the response should
-        indicate which succeeded and which were blocked — not just "approved".
+        When some proposals execute and others are blocked by CapabilityGuard,
+        the endpoint must NOT return 200 with status="approved".
+
+        The partial execution gap: first proposal executes, second is blocked,
+        operator gets "approved" with no indication half the work was skipped.
+
+        The correct fix: return 403 (or 500) and stay PENDING when any proposal
+        is blocked, so operator can retry with adjusted capabilities.
+
+        This test will FAIL until the partial execution gap is fixed.
         """
         campaign_id = uuid.uuid4()
         mock_adapter.get_campaign.return_value = self._make_campaign_row()
@@ -168,10 +176,15 @@ class TestCampaignsApproveExecution:
                 headers={"X-API-Key": "test-key"},
             )
 
-            # Partial execution should indicate which succeeded and which were blocked
-            # At minimum: must NOT return generic "approved" with no detail
-            body = response.json()
-            assert response.status_code == 200, f"Expected 200 for partial success, got {response.status_code}"
+            # Must NOT return 200 "approved" when only some proposals executed.
+            # If ANY proposal is blocked, the operator must be notified — returning
+            # "approved" after partial execution hides that some work was skipped.
+            assert not (response.status_code == 200 and response.json().get("status") == "approved"), (
+                f"Got {response.status_code} with status={response.json().get('status')} — "
+                "proposal 1 executed but proposal 2 was blocked. "
+                "Partial execution must not return 'approved' without clear reporting. "
+                "This is the partial execution gap — fix by returning 403 (blocked) or 500 (error)."
+            )
 
             # The real question: does this return "approved" when only 1 of 2 proposals executed?
             # This test documents the desired behavior — in practice the fix should either:
