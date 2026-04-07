@@ -634,6 +634,39 @@ class TestEmailReplyInvalidPhase:
         # Must return 404 (no pending proposal), not 500 (server error)
         assert response.status_code == 404
 
+    def test_returns_404_when_phase_already_approved(self, mock_adapter, client):
+        """
+        When the debate is in APPROVED phase (not PENDING_MANUAL_REVIEW),
+        a reply must return 404 — there is nothing pending to act on.
+        """
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["hitl_enabled"] = True
+
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "cycle_date": "2026-04-07",
+            "campaign_id": campaign_uuid,
+            "phase": "approved",  # already approved
+            "round_number": 1,
+            "green_proposals": [],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        response = client.post(
+            "/email-replies",
+            json={
+                "email_from": "owner@example.com",
+                "subject": "Re: [AdsAgent] Action required",
+                "body": "yes",
+            },
+        )
+
+        assert response.status_code == 404
+
 
 class TestEmailReplyWebhookQuestion:
     """Owner asks a question → webhook fires question_asked event, returns 200."""
