@@ -185,6 +185,31 @@ class TestApproveCampaignAction:
 class TestOverrideCampaignAction:
     """Tests for POST /campaigns/{uuid}/override."""
 
+    def test_override_bid_update_returns_403_via_real_guard(self, monkeypatch):
+        """Non-keyword_add action types fall through to guard.check and are denied by default."""
+        # Uses the real CapabilityGuard so deny-by-default rules apply.
+        # google_ads.bid_update is not in ALLOWED_OPERATIONS and matches no allowlist
+        # pattern, so CapabilityDenied is raised naturally.
+        mock = MagicMock()
+        monkeypatch.setattr("src.api.routes.campaigns.PostgresAdapter", lambda: mock)
+
+        app = FastAPI()
+        app.include_router(router)
+        test_client = TestClient(app, raise_server_exceptions=False)
+
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        mock.get_campaign.return_value = campaign_row
+
+        response = test_client.post(
+            f"/campaigns/{campaign_uuid}/override",
+            json={"action_type": "bid_update", "bid_adjustment": 0.15},
+        )
+
+        assert response.status_code == 403
+        assert "not allowed" in response.json()["detail"].lower() or "denied" in response.json()["detail"].lower()
+
     def test_override_returns_404_when_campaign_not_found(self, mock_adapter, client):
         """Returns 404 when no campaign exists with the given UUID."""
         mock_adapter.get_campaign.return_value = None
