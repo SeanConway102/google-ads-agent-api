@@ -381,19 +381,23 @@ class GoogleAdsClient:
         """
         Add keywords to an ad group.
         Requires: google_ads.add_keywords
+
+        Args:
+            customer_id: Google Ads customer ID
+            ad_group_id: Target ad group ID
+            keywords: List of keyword text strings to add (match_type defaults to EXACT)
         """
         def _call() -> list[str]:
             client = self._get_client()
             service = client.get_service("AdGroupCriterionService")
             operations = []
-            for keyword in keywords:
-                op = client.resource_utils.create_create_operation(
-                    "AdGroupCriterion",
-                    {
-                        "ad_group": f"customers/{customer_id}/adGroups/{ad_group_id}",
-                        "keyword": {"text": keyword, "match_type": "EXACT"},
-                    },
+            for keyword_text in keywords:
+                op = client.get_type("AdGroupCriterionOperation")
+                op.create.ad_group_criterion.ad_group = (
+                    f"customers/{customer_id}/adGroups/{ad_group_id}"
                 )
+                op.create.ad_group_criterion.keyword.text = keyword_text
+                op.create.ad_group_criterion.keyword.match_type = "EXACT"
                 operations.append(op)
             response = service.mutate_ad_group_criteria(customer_id=customer_id, operations=operations)
             return [str(r.resource_name) for r in response.results]

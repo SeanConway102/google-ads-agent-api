@@ -4,12 +4,107 @@ MCP-004: remove_keywords
 MCP-005: update_keyword_bids
 MCP-006: update_keyword_match_types
 MCP-007: get_keyword_performance
+MCP-008: add_keywords
 MCP-(list_keywords): list keywords in a campaign
 """
 from unittest.mock import MagicMock, patch
 import pytest
 
 from src.mcp.google_ads_client import GoogleAdsClient
+
+
+# ─── add_keywords (MCP-008) ────────────────────────────────────────────────────
+
+def test_add_keywords_method_exists():
+    """GoogleAdsClient should have an add_keywords method."""
+    client = GoogleAdsClient()
+    assert hasattr(client, "add_keywords"), "add_keywords method not found"
+
+
+def test_add_keywords_returns_resource_names_on_success():
+    """add_keywords should return a list of resource name strings on success."""
+    client = GoogleAdsClient()
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.results = [
+        MagicMock(resource_name="customers/123/adGroupCriteria/456"),
+        MagicMock(resource_name="customers/123/adGroupCriteria/789"),
+    ]
+    mock_service.mutate_ad_group_criteria.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+    # Use get_type() which is the correct google-ads API — not resource_utils
+    mock_client.get_type.return_value = MagicMock()
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        result = client.add_keywords(
+            customer_id="123",
+            ad_group_id="456",
+            keywords=["summer sale", "discount code"],
+        )
+
+    assert result == [
+        "customers/123/adGroupCriteria/456",
+        "customers/123/adGroupCriteria/789",
+    ]
+    mock_service.mutate_ad_group_criteria.assert_called_once()
+
+
+def test_add_keywords_uses_get_type_not_resource_utils():
+    """add_keywords must use client.get_type() to create AdGroupCriterionOperation.
+
+    The google-ads library uses get_type() (e.g. get_type("AdGroupCriterionOperation")).
+    resource_utils.create_create_operation does not exist and would fail at runtime.
+    """
+    client = GoogleAdsClient()
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.results = []
+    mock_service.mutate_ad_group_criteria.return_value = mock_response
+
+    # Strict mock — raise AttributeError if create_create_operation is accessed
+    class StrictMock(MagicMock):
+        def __getattr__(self, name):
+            if name == "create_create_operation":
+                raise AttributeError("resource_utils.create_create_operation does not exist — use get_type()")
+            return super().__getattr__(name)
+
+    mock_client = StrictMock()
+    mock_client.get_service.return_value = mock_service
+    mock_client.get_type.return_value = MagicMock()
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        result = client.add_keywords(
+            customer_id="123",
+            ad_group_id="456",
+            keywords=["test keyword"],
+        )
+
+    # Verify get_type was called with "AdGroupCriterionOperation"
+    mock_client.get_type.assert_called_with("AdGroupCriterionOperation")
+
+
+def test_add_keywords_requires_capability():
+    """add_keywords should call _guard.check before making the API call."""
+    client = GoogleAdsClient()
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.results = []
+    mock_service.mutate_ad_group_criteria.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+    mock_client.get_type.return_value = MagicMock()
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        with patch.object(client, "_guard") as mock_guard:
+            client.add_keywords(customer_id="123", ad_group_id="456", keywords=["test"])
+
+    mock_guard.check.assert_called_once_with("google_ads.add_keywords")
 
 
 def test_remove_keywords_method_exists():
