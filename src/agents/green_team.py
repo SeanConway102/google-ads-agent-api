@@ -4,6 +4,9 @@ Green Team Agent — proposes optimizations for Google Ads campaigns.
 Green Team's role is to analyze performance data and wiki research,
 then propose specific, actionable changes. Proposals are challenged
 by Red Team in the adversarial loop.
+
+When HITL is enabled and a proposal is above threshold, it is held
+for email approval instead of auto-executing.
 """
 from __future__ import annotations
 
@@ -95,3 +98,96 @@ class GreenTeamAgent:
             except json.JSONDecodeError:
                 pass
         return [{"type": "raw", "content": response}]
+
+    # ─── HITL routing ─────────────────────────────────────────────────────────
+
+    async def route_proposals(
+        self,
+        proposals: list[dict[str, Any]],
+        campaign: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """
+        Route each proposal to either HITL approval or auto-execution.
+
+        Above-threshold proposals with hitl_enabled=true are routed to HITL.
+        Below-threshold proposals, or HITL disabled, go directly to auto-execution.
+
+        Args:
+            proposals: List of Green Team proposal dicts
+            campaign: Full campaign record from the database
+
+        Returns:
+            Tuple of (needs_approval_proposals, auto_execute_proposals)
+        """
+        from src.services.impact_assessor import should_require_approval
+        from src.services.email_service import send_proposal_email
+
+        needs_approval: list[dict[str, Any]] = []
+        auto_execute: list[dict[str, Any]] = []
+
+        for proposal in proposals:
+            ptype = proposal.get("type", "")
+            hitl_needed = should_require_approval(
+                proposal_type=ptype,
+                current_value=proposal.get("current_value"),
+                proposed_value=proposal.get("proposed_value"),
+                count=proposal.get("count"),
+            )
+
+            if hitl_needed and campaign.get("hitl_enabled"):
+                needs_approval.append(proposal)
+                # Create HITL proposal record in DB
+                await self._create_hitl_proposal(proposal, campaign)
+                # Send approval email
+                await self._send_proposal_email_for(proposal, campaign)
+            else:
+                auto_execute.append(proposal)
+
+        return needs_approval, auto_execute
+
+    async def _create_hitl_proposal(
+        self,
+        proposal: dict[str, Any],
+        campaign: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create a HITL proposal record in the database."""
+        from uuid import UUID
+        from src.db.postgres_adapter import PostgresAdapter
+        from src.services.email_service import send_proposal_email
+
+        adapter = PostgresAdapter()
+        row = adapter.execute_returning(
+            """INSERT INTO hitl_proposals
+               (campaign_id, proposal_type, impact_summary, reasoning, status)
+               VALUES (%s, %s, %s, %s, 'pending')
+               RETURNING *""",
+            (
+                str(campaign["id"]),
+                proposal.get("type", "unknown"),
+                proposal.get("impact_summary", proposal.get("change", "")),
+                proposal.get("reasoning", proposal.get("evidence", "")),
+            ),
+        )
+        return dict(row)
+
+    async def _send_proposal_email_for(
+        self,
+        proposal: dict[str, Any],
+        campaign: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Send a proposal approval email for a single proposal."""
+        from src.services.email_service import send_proposal_email
+        from src.config import get_settings
+
+        settings = get_settings()
+        owner_email = campaign.get("owner_email") or settings.HITL_DEFAULT_EMAIL
+        if not owner_email:
+            return {"id": "no_emailConfigured"}
+
+        return send_proposal_email(
+            to_email=owner_email,
+            campaign_name=campaign.get("name", "Unknown Campaign"),
+            proposal_type=proposal.get("type", "unknown"),
+            impact_summary=proposal.get("impact_summary", proposal.get("change", "")),
+            reasoning=proposal.get("reasoning", "")[:300],
+        )
