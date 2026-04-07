@@ -4,6 +4,7 @@ MCP-004: remove_keywords
 MCP-005: update_keyword_bids
 MCP-006: update_keyword_match_types
 MCP-007: get_keyword_performance
+MCP-(list_keywords): list keywords in a campaign
 """
 from unittest.mock import MagicMock, patch
 import pytest
@@ -281,3 +282,76 @@ def test_get_keyword_performance_requires_capability():
             client.get_keyword_performance(customer_id="123", campaign_id="456")
 
     mock_guard.check.assert_called_once_with("google_ads.get_keyword_performance")
+
+
+# ─── list_keywords ───────────────────────────────────────────────────────────────
+
+def test_list_keywords_method_exists():
+    """GoogleAdsClient should have a list_keywords method."""
+    client = GoogleAdsClient()
+    assert hasattr(client, "list_keywords"), "list_keywords method not found"
+
+
+def test_list_keywords_returns_keyword_objects():
+    """list_keywords should return keyword objects with text, match_type, status."""
+    client = GoogleAdsClient()
+
+    mock_row = MagicMock()
+    mock_row.ad_group_criterion.keyword.text = "running shoes"
+    mock_row.ad_group_criterion.keyword.match_type = "EXACT"
+    mock_row.ad_group_criterion.status = "ENABLED"
+    mock_row.ad_group.id = "123"
+    mock_row.campaign.id = "456"
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.__iter__ = MagicMock(return_value=iter([mock_row]))
+    mock_service.search.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        result = client.list_keywords(customer_id="123", campaign_id="456")
+
+    assert len(result) == 1
+    assert result[0].text == "running shoes"
+    assert result[0].match_type == "EXACT"
+    assert result[0].status == "ENABLED"
+
+
+def test_list_keywords_empty_when_no_keywords():
+    """list_keywords should return empty list when no keywords found."""
+    client = GoogleAdsClient()
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.__iter__ = MagicMock(return_value=iter([]))
+    mock_service.search.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        result = client.list_keywords(customer_id="123", campaign_id="456")
+
+    assert result == []
+
+
+def test_list_keywords_requires_capability():
+    """list_keywords should call _guard.check before making API call."""
+    client = GoogleAdsClient()
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.__iter__ = MagicMock(return_value=iter([]))
+    mock_service.search.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        with patch.object(client, "_guard") as mock_guard:
+            client.list_keywords(customer_id="123", campaign_id="456")
+
+    mock_guard.check.assert_called_once_with("google_ads.list_keywords")

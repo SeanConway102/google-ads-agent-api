@@ -126,6 +126,43 @@ class GoogleAdsClient:
 
         return self._call("google_ads.list_campaigns", _call)
 
+    def list_keywords(self, customer_id: str, campaign_id: str) -> list[Keyword]:
+        """
+        List all keywords in a campaign.
+        Requires: google_ads.list_keywords
+        """
+        def _call() -> list[Keyword]:
+            from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
+            client = self._get_client()
+            service = client.get_service("GoogleAdsService")
+            query = f"""
+                SELECT
+                    campaign.id,
+                    ad_group.id,
+                    ad_group_criterion.keyword.text,
+                    ad_group_criterion.keyword.match_type,
+                    ad_group_criterion.status
+                FROM ad_group_criterion
+                WHERE campaign.id = '{campaign_id}'
+                  AND ad_group_criterion.type = 'KEYWORD'
+            """
+            request = SearchGoogleAdsRequest(customer_id=customer_id, query=query)
+            response = service.search(request=request)
+            keywords = []
+            for row in response:
+                kw = row.ad_group_criterion.keyword
+                keywords.append(Keyword(
+                    id=str(row.ad_group_criterion.resource_name.split("/")[-1]),
+                    text=kw.text,
+                    match_type=kw.match_type,
+                    campaign_id=str(row.campaign.id),
+                    ad_group_id=str(row.ad_group.id),
+                    status=str(row.ad_group_criterion.status),
+                ))
+            return keywords
+
+        return self._call("google_ads.list_keywords", _call)
+
     def get_campaign(self, customer_id: str, campaign_id: str) -> Campaign:
         """
         Get a single campaign by ID.

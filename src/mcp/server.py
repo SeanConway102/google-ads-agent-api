@@ -93,6 +93,24 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "google_ads_list_keywords",
+        "description": "List all keywords in a campaign with their text, match type, and status.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Google Ads customer ID",
+                },
+                "campaign_id": {
+                    "type": "string",
+                    "description": "Campaign ID (numeric string)",
+                },
+            },
+            "required": ["customer_id", "campaign_id"],
+        },
+    },
+    {
         "name": "google_ads_update_campaign_budget",
         "description": "Update a campaign's daily budget (in micros). WARNING: Requires explicit capability allowance. Only use after Green team proposes and Red team raises no objection.",
         "inputSchema": {
@@ -355,6 +373,28 @@ def handle_get_performance_report(args: dict) -> dict[str, Any]:
     }
 
 
+def handle_list_keywords(args: dict) -> dict[str, Any]:
+    customer_id: str = args["customer_id"]
+    campaign_id: str = args["campaign_id"]
+    _validate_customer_id(customer_id)
+    client = _make_client()
+    keywords = client.list_keywords(customer_id, campaign_id)
+    return {
+        "campaign_id": campaign_id,
+        "keywords": [
+            {
+                "id": kw.id,
+                "text": kw.text,
+                "match_type": kw.match_type,
+                "ad_group_id": kw.ad_group_id,
+                "status": kw.status,
+            }
+            for kw in keywords
+        ],
+        "total": len(keywords),
+    }
+
+
 def handle_update_campaign_budget(args: dict) -> dict[str, Any]:
     customer_id: str = args["customer_id"]
     campaign_id: str = args["campaign_id"]
@@ -425,6 +465,7 @@ TOOL_HANDLERS: dict[str, callable] = {
     "google_ads_list_campaigns": handle_list_campaigns,
     "google_ads_get_campaign": handle_get_campaign,
     "google_ads_get_performance_report": handle_get_performance_report,
+    "google_ads_list_keywords": handle_list_keywords,
     "google_ads_update_campaign_budget": handle_update_campaign_budget,
     "google_ads_update_campaign_status": handle_update_campaign_status,
     "google_ads_add_keywords": handle_add_keywords,
