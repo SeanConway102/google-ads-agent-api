@@ -80,12 +80,6 @@ async def test_fetch_industry_news_returns_list():
         assert results[0].name == "Google Ads Best Practices 2026"
         assert results[0].source_type == "industry_news"
 
-        assert isinstance(results, list)
-        assert len(results) == 1
-        assert isinstance(results[0], Source)
-        assert results[0].name == "Google Ads Best Practices 2026"
-        assert results[0].source_type == "industry_news"
-
 
 @pytest.mark.asyncio
 async def test_fetch_academic_sources_empty_on_error():
