@@ -19,25 +19,30 @@ def _mock_get_settings():
 class TestRunDailyResearch:
     """Test run_daily_research() orchestration."""
 
-    def test_concurrent_run_aborts_when_lock_held(self):
+    def test_concurrent_run_aborts_when_lock_held(self, monkeypatch):
         """When another cycle is already running, run_daily_research returns early without processing."""
+        from src.cron import daily_research as dr_module
         from src.cron.daily_research import run_daily_research
-        import src.cron.daily_research as dr
+
+        # Prevent the real lock from being acquired — the function should abort early
+        # without touching the database. Using monkeypatch.setitem on sys.modules
+        # is NOT needed; we just need to shadow the function at the call site.
+        # The simplest reliable way: patch the module's _acquire_lock via setattr.
+        # We store the original and restore it using monkeypatch's undo mechanism.
+        original = dr_module._acquire_lock
+        monkeypatch.setattr(dr_module, "_acquire_lock", lambda lock_path: False)
 
         # Track whether PostgresAdapter was called (only if lock is acquired)
         adapter_called = False
-        original_adapter = dr.PostgresAdapter
+        original_adapter = dr_module.PostgresAdapter
 
         def tracking_adapter(*args, **kwargs):
             nonlocal adapter_called
             adapter_called = True
             return original_adapter(*args, **kwargs)
 
-        # Use patch.object as context manager to guarantee restoration
-        # regardless of how the test exits (normal return or exception).
-        with patch.object(dr, "_acquire_lock", lambda lock_path: False):
-            dr.PostgresAdapter = tracking_adapter
-            run_daily_research()
+        monkeypatch.setattr(dr_module, "PostgresAdapter", tracking_adapter)
+        run_daily_research()
 
         # Lock was not acquired → PostgresAdapter should not have been called
         assert adapter_called is False, "PostgresAdapter was called despite lock not acquired"
