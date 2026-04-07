@@ -184,8 +184,12 @@ class TestApproveCampaignAction:
         assert data["campaign_id"] == str(campaign_uuid)
         mock_adapter.save_debate_state.assert_called_once()
 
-    def test_approve_returns_approved_when_guard_denies_all_proposals(self, mock_adapter, client):
-        """When CapabilityGuard denies all proposals, still returns approved (proposals skipped)."""
+    def test_approve_returns_403_when_guard_denies_all_proposals(self, mock_adapter, client):
+        """When CapabilityGuard denies ALL proposals, return 403 with explanation.
+
+        The phase stays PENDING_MANUAL_REVIEW so the operator can retry after
+        adjusting capabilities or campaign configuration.
+        """
         from src.mcp.capability_guard import CapabilityDenied
 
         campaign_uuid = uuid.uuid4()
@@ -204,7 +208,6 @@ class TestApproveCampaignAction:
 
         mock_adapter.get_campaign.return_value = campaign_row
         mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
-        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
 
         # Guard denies the capability
         guard_mock = MagicMock()
@@ -218,10 +221,13 @@ class TestApproveCampaignAction:
         campaigns_module.CapabilityGuard = patched_guard
         try:
             response = client.post(f"/campaigns/{campaign_uuid}/approve")
-            # Should still return 200 — denied proposals are skipped
-            assert response.status_code == 200
+            # MUST return 403 when all proposals are blocked — not "approved"
+            assert response.status_code == 403, (
+                f"Expected 403 when all proposals are blocked by CapabilityGuard, "
+                f"got {response.status_code}. Phase must stay PENDING_MANUAL_REVIEW."
+            )
             data = response.json()
-            assert data["status"] == "approved"
+            assert "blocked" in data.get("detail", "").lower()
         finally:
             campaigns_module.CapabilityGuard = original
 

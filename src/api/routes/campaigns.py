@@ -226,14 +226,15 @@ def approve_campaign_action(
             detail="No pending action to approve for this campaign",
         )
 
-    # Persist approved phase first (preserve all existing fields via full row)
-    updated = dict(debate_row)
-    updated["phase"] = Phase.APPROVED.value
-    _adapter().save_debate_state(updated)
-
-    # Execute approved proposals via MCP capability guard
+    # Execute approved proposals FIRST, transition phase ONLY if all succeed.
+    # If any proposal is blocked by CapabilityGuard or raises from gads_client,
+    # the phase stays PENDING_MANUAL_REVIEW and the operator is notified.
     guard = CapabilityGuard()
     gads_client = GoogleAdsClient(customer_id=row["customer_id"])
+    blocked_proposals = []
+    executed_proposals = []
+    execution_error = None
+
     for proposal in (debate_row.get("green_proposals") or []):
         ptype = proposal.get("type", "")
         try:
@@ -262,8 +263,31 @@ def approve_campaign_action(
                     customer_id=row["customer_id"],
                     updates=proposal.get("updates", []),
                 )
+            executed_proposals.append(ptype)
         except CapabilityDenied:
-            pass  # blocked by capability guard — skip
+            blocked_proposals.append(ptype)
+        except Exception as exc:
+            execution_error = exc
+            break
+
+    # If execution failed, do NOT transition to APPROVED — operator must retry
+    if execution_error is not None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Google Ads execution failed: {execution_error}",
+        )
+
+    # If ALL proposals were blocked, return 403 — nothing was applied
+    if blocked_proposals and not executed_proposals:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Action blocked by capability guard: {blocked_proposals}. No proposals executed.",
+        )
+
+    # Only transition to APPROVED after successful execution
+    updated = dict(debate_row)
+    updated["phase"] = Phase.APPROVED.value
+    _adapter().save_debate_state(updated)
 
     return ApproveResponse(status="approved", campaign_id=campaign_id)
 
