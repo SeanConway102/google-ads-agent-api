@@ -132,3 +132,61 @@ class TestDeliverWebhook:
             await dispatch_event(event_type="consensus_reached", payload={})
 
             # No HTTP client created means no calls made
+
+    @pytest.mark.asyncio
+    async def test_deliver_webhook_connection_error_returns_false_after_retries(self):
+        """RequestError (connection error) should be retried MAX_RETRIES times before returning False."""
+        import httpx
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.RequestError("Connection refused")
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_cls.return_value = mock_client
+
+            result = await deliver_webhook(
+                url="https://unreachable.example.com/webhook",
+                event_type="consensus_reached",
+                payload={},
+                secret=None,
+            )
+
+            assert result is False
+            # Retried initial + 3 retries = 4 attempts total
+            assert mock_client.post.call_count == 4
+
+    @pytest.mark.asyncio
+    async def test_dispatch_event_handles_individual_delivery_exception(self):
+        """If one webhook delivery raises, others should still be attempted."""
+        import httpx
+
+        with patch("httpx.AsyncClient") as mock_client_cls, \
+             patch("src.services.webhook_service.PostgresAdapter") as mock_adapter_cls:
+            mock_adapter = MagicMock()
+            mock_adapter.list_webhooks.return_value = [
+                {"id": "1", "url": "https://ok.example.com/hook", "events": ["consensus_reached"], "secret": None},
+                {"id": "2", "url": "https://fail.example.com/hook", "events": ["consensus_reached"], "secret": None},
+            ]
+            mock_adapter_cls.return_value = mock_adapter
+
+            ok_response = MagicMock()
+            ok_response.status_code = 200
+            ok_response.__aenter__.return_value = ok_response
+            ok_response.__aexit__.return_value = None
+
+            async def side_effect(url, **kwargs):
+                if "fail" in url:
+                    raise httpx.RequestError("Connection refused")
+                return ok_response
+
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = side_effect
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_cls.return_value = mock_client
+
+            # Should not raise — individual failures are caught
+            await dispatch_event(event_type="consensus_reached", payload={})
+            # ok.example.com: 1 attempt; fail.example.com: 1 + 3 retries = 4
+            assert mock_client.post.call_count == 5
