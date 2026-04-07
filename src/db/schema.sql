@@ -18,7 +18,11 @@ CREATE TABLE IF NOT EXISTS campaigns (
     owner_tag       VARCHAR(128),                  -- team/department label
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     last_synced_at  TIMESTAMPTZ,                   -- last Google Ads sync
-    last_reviewed_at TIMESTAMPTZ                    -- last agent review
+    last_reviewed_at TIMESTAMPTZ,                  -- last agent review
+    -- HITL (Human-in-the-Loop) settings
+    hitl_enabled      BOOLEAN NOT NULL DEFAULT false,
+    owner_email      TEXT,                          -- email for HITL notifications
+    hitl_threshold   TEXT DEFAULT 'budget>20pct,keyword_add>5'
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status);
@@ -130,6 +134,26 @@ CREATE TABLE IF NOT EXISTS debate_state (
 
 CREATE INDEX IF NOT EXISTS idx_debate_cycle ON debate_state(cycle_date);
 CREATE INDEX IF NOT EXISTS idx_debate_phase ON debate_state(phase);
+
+-- =============================================================================
+-- HITL PROPOSALS
+-- Human-in-the-loop email approval for high-impact Green Team proposals
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS hitl_proposals (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    campaign_id       UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    proposal_type     TEXT NOT NULL,               -- 'budget_update', 'keyword_add', etc.
+    impact_summary    TEXT NOT NULL,               -- human-readable description
+    reasoning         TEXT NOT NULL,               -- Green Team full rationale
+    status            TEXT NOT NULL DEFAULT 'pending',  -- pending/approved/rejected/expired
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    decided_at        TIMESTAMPTZ,
+    replier_response  TEXT                          -- raw reply text
+);
+
+CREATE INDEX IF NOT EXISTS idx_hitl_proposals_campaign ON hitl_proposals(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_hitl_proposals_status ON hitl_proposals(status) WHERE status = 'pending';
 
 -- =============================================================================
 -- WEBHOOK SUBSCRIPTIONS

@@ -203,3 +203,76 @@ class TestSchemaFile:
 
         assert "UNIQUE" in content and "slug" in content, \
             "wiki_entries.slug must have UNIQUE constraint"
+
+    def test_campaigns_has_hitl_columns(self):
+        """campaigns table must have hitl_enabled, owner_email, hitl_threshold columns."""
+        import os
+        schema_path = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "src", "db", "schema.sql"
+        )
+        with open(schema_path) as f:
+            content = f.read()
+
+        # Find the campaigns table definition
+        match = re.search(r"CREATE TABLE.*?campaigns.*?;", content, re.DOTALL | re.IGNORECASE)
+        assert match, "schema.sql must contain campaigns table"
+        table_def = match.group(0)
+
+        for col in ["hitl_enabled", "owner_email", "hitl_threshold"]:
+            assert col in table_def, f"campaigns table must have column: {col}"
+
+    def test_hitl_proposals_table_exists(self):
+        """hitl_proposals table must exist with all required columns."""
+        import os
+        schema_path = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "src", "db", "schema.sql"
+        )
+        with open(schema_path) as f:
+            content = f.read()
+
+        assert re.search(r"CREATE TABLE.*?hitl_proposals", content, re.DOTALL | re.IGNORECASE), \
+            "schema.sql must contain hitl_proposals table"
+
+        required = [
+            "id", "campaign_id", "proposal_type", "impact_summary",
+            "reasoning", "status", "created_at", "updated_at",
+            "decided_at", "replier_response",
+        ]
+        for col in required:
+            assert re.search(
+                rf"{col}\s+(TEXT|UUID|BOOLEAN|TIMESTAMPTZ|INTERVAL)",
+                content, re.IGNORECASE
+            ), f"hitl_proposals must have column: {col}"
+
+    def test_hitl_proposals_indexes_exist(self):
+        """hitl_proposals must have indexes on campaign_id and pending status."""
+        import os
+        schema_path = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "src", "db", "schema.sql"
+        )
+        with open(schema_path) as f:
+            content = f.read()
+
+        assert re.search(r"CREATE INDEX.*?hitl_proposals.*?campaign", content, re.IGNORECASE), \
+            "hitl_proposals must have index on campaign_id"
+        assert re.search(r"CREATE INDEX.*?hitl_proposals.*?status", content, re.IGNORECASE), \
+            "hitl_proposals must have index on status"
+
+    def test_hitl_proposals_references_campaigns(self):
+        """hitl_proposals.campaign_id must be a foreign key to campaigns."""
+        import os
+        schema_path = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "src", "db", "schema.sql"
+        )
+        with open(schema_path) as f:
+            content = f.read()
+
+        match = re.search(r"CREATE TABLE.*?hitl_proposals.*?;", content, re.DOTALL | re.IGNORECASE)
+        assert match, "hitl_proposals table must exist"
+        table_def = match.group(0)
+        assert "REFERENCES campaigns" in table_def or "REFERENCES" in table_def, \
+            "hitl_proposals.campaign_id must reference campaigns"

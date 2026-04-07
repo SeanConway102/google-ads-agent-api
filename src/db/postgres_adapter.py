@@ -284,6 +284,72 @@ class PostgresAdapter(DatabaseAdapter):
     def delete_webhook(self, id: UUID) -> None:
         self.execute("DELETE FROM webhook_subscriptions WHERE id = %s", (str(id),))
 
+    # ─── HITL Proposals ───────────────────────────────────────────────────────
+
+    def create_hitl_proposal(self, data: dict) -> dict:
+        """Insert a new hitl_proposal row. Returns the inserted row."""
+        with self._connection() as conn:
+            with self._cursor(conn) as cur:
+                cur.execute("""
+                    INSERT INTO hitl_proposals
+                        (campaign_id, proposal_type, impact_summary, reasoning, status)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING *
+                """, (
+                    str(data["campaign_id"]),
+                    data["proposal_type"],
+                    data["impact_summary"],
+                    data["reasoning"],
+                    data.get("status", "pending"),
+                ))
+                return dict(cur.fetchone())
+
+    def list_hitl_proposals(
+        self, campaign_id: UUID, status: str | None = None
+    ) -> List[dict]:
+        """List hitl_proposals for a campaign, optionally filtered by status."""
+        if status:
+            return self.fetch_all("""
+                SELECT * FROM hitl_proposals
+                WHERE campaign_id = %s AND status = %s
+                ORDER BY created_at DESC
+            """, (str(campaign_id), status))
+        return self.fetch_all("""
+            SELECT * FROM hitl_proposals
+            WHERE campaign_id = %s
+            ORDER BY created_at DESC
+        """, (str(campaign_id),))
+
+    def update_hitl_proposal_status(
+        self,
+        proposal_id: UUID,
+        status: str,
+        replier_response: str | None = None,
+    ) -> dict:
+        """Update a hitl_proposal's status and optionally the replier response."""
+        with self._connection() as conn:
+            with self._cursor(conn) as cur:
+                cur.execute("""
+                    UPDATE hitl_proposals
+                    SET status = %s,
+                        replier_response = COALESCE(%s, replier_response),
+                        decided_at = CASE
+                            WHEN %s IN ('approved', 'rejected', 'expired')
+                            THEN NOW() ELSE decided_at END,
+                        updated_at = NOW()
+                    WHERE id = %s
+                    RETURNING *
+                """, (status, replier_response, status, str(proposal_id)))
+                row = cur.fetchone()
+                return dict(row) if row else {}
+
+    def get_hitl_proposal(self, proposal_id: UUID) -> Optional[dict]:
+        """Get a single hitl_proposal by ID."""
+        return self.fetch_one(
+            "SELECT * FROM hitl_proposals WHERE id = %s",
+            (str(proposal_id),)
+        )
+
     # ─── Helpers ───────────────────────────────────────────────────────────────
 
     @staticmethod
