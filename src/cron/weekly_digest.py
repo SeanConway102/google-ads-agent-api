@@ -191,14 +191,17 @@ def send_weekly_digests() -> dict[str, int]:
             # Get proposal counts
             pending, approved, rejected = _count_proposals_by_status(str(campaign["id"]))
 
-            # Get performance data from Google Ads
+            # Get performance data from Google Ads (last 7 days)
             try:
+                from datetime import date, timedelta
+                end_date = date.today()
+                start_date = end_date - timedelta(days=7)
                 gads_client = GoogleAdsClient(customer_id=campaign["customer_id"])
                 performance_data = gads_client.get_performance_report(
                     customer_id=campaign["customer_id"],
                     campaign_id=campaign["campaign_id"],
-                    start_date=None,
-                    end_date=None,
+                    start_date=start_date,
+                    end_date=end_date,
                 )
             except Exception:
                 performance_data = None
