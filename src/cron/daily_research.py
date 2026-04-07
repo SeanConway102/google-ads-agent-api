@@ -92,6 +92,7 @@ def _send_hitl_emails(
 
     owner_email = campaign.get("owner_email")
     if not owner_email:
+        print(f"    Warning: hitl_enabled=True but no owner_email configured for campaign {campaign.get('campaign_id', campaign.get('id'))} — skipping HITL email")
         return
 
     for proposal in (state.green_proposals or []):
