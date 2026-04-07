@@ -63,7 +63,14 @@ class CoordinatorAgent:
         else:
             from src.llm.adapter import chat_completion
             response_obj = await chat_completion(messages=messages)
-        response_text = response_obj.choices[0].message.content
+        if response_obj is None or not response_obj.choices:
+            raise RuntimeError("LLM returned empty response")
+        first_choice = response_obj.choices[0]
+        if not hasattr(first_choice, "message") or first_choice.message is None:
+            raise RuntimeError("LLM returned choice with no message")
+        response_text = first_choice.message.content
+        if response_text is None:
+            raise RuntimeError("LLM returned None content")
         decision = self._parse_decision(response_text)
         return self._apply_decision(state, decision)
 
@@ -91,8 +98,15 @@ class CoordinatorAgent:
             response,
         )
         verdict = verdict_match.group(1).lower() if verdict_match else "continue_debate"
-        compromise_match = re.search(r'\[COMPROMISE_PROPOSED\]\s*(.+)', response, re.DOTALL)
-        compromise = compromise_match.group(1).strip() if compromise_match else None
+
+        # Extract compromise text: content after the [COMPROMISE_PROPOSED] tag
+        compromise = None
+        if verdict == "compromise_proposed" and verdict_match:
+            tag_end = verdict_match.end()
+            remainder = response[tag_end:].strip()
+            if remainder:
+                compromise = remainder
+
         return {
             "verdict": verdict,
             "raw_response": response,

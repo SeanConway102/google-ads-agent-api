@@ -33,8 +33,8 @@ class Message:
 class ToolCall:
     """A tool call requested by the model."""
     id: str
-    type: str = "function"
     function: "FunctionRef"
+    type: str = "function"
 
 
 @dataclass

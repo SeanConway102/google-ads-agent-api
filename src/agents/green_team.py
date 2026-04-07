@@ -58,7 +58,14 @@ class GreenTeamAgent:
             from src.llm.adapter import chat_completion
             response_obj = await chat_completion(messages=messages)
 
-        response_text = response_obj.choices[0].message.content
+        if response_obj is None or not response_obj.choices:
+            raise RuntimeError("LLM returned empty response")
+        first_choice = response_obj.choices[0]
+        if not hasattr(first_choice, "message") or first_choice.message is None:
+            raise RuntimeError("LLM returned choice with no message")
+        response_text = first_choice.message.content
+        if response_text is None:
+            raise RuntimeError("LLM returned None content")
         return self._parse_response(response_text)
 
     def _build_context(
