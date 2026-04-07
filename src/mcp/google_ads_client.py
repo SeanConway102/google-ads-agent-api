@@ -340,3 +340,63 @@ class GoogleAdsClient:
             return [str(r.resource_name) for r in response.results]
 
         return self._call("google_ads.remove_keywords", _call)
+
+    def update_keyword_bids(
+        self,
+        customer_id: str,
+        updates: list[dict],
+    ) -> list[str]:
+        """
+        Update CPC bids for existing keywords.
+        Requires: google_ads.update_keyword_bids
+        """
+        if not updates:
+            return []
+
+        def _call() -> list[str]:
+            client = self._get_client()
+            service = client.get_service("AdGroupCriterionService")
+            operations = []
+            for update in updates:
+                op = client.resource_utils.create_update_operation(
+                    "AdGroupCriterion",
+                    {
+                        "resource_name": update["resource_name"],
+                        "cpc_bid_micros": update["cpc_bid_micros"],
+                    },
+                )
+                operations.append(op)
+            response = service.mutate_ad_group_criteria(customer_id=customer_id, operations=operations)
+            return [str(r.resource_name) for r in response.results]
+
+        return self._call("google_ads.update_keyword_bids", _call)
+
+    def update_keyword_match_types(
+        self,
+        customer_id: str,
+        updates: list[dict],
+    ) -> list[str]:
+        """
+        Update match types for existing keywords.
+        Requires: google_ads.update_keyword_match_types
+        """
+        if not updates:
+            return []
+
+        def _call() -> list[str]:
+            client = self._get_client()
+            service = client.get_service("AdGroupCriterionService")
+            operations = []
+            for update in updates:
+                op = client.resource_utils.create_update_operation(
+                    "AdGroupCriterion",
+                    {
+                        "resource_name": update["resource_name"],
+                        "keyword": {"match_type": update["match_type"]},
+                    },
+                )
+                operations.append(op)
+            response = service.mutate_ad_group_criteria(customer_id=customer_id, operations=operations)
+            return [str(r.resource_name) for r in response.results]
+
+        return self._call("google_ads.update_keyword_match_types", _call)

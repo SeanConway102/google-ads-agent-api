@@ -95,6 +95,7 @@ class CapabilityGuard:
         # Allow specific safe keyword operations
         CapabilityRule("google_ads.add_*", Permission.ALLOW),
         CapabilityRule("google_ads.remove_*", Permission.ALLOW),
+        CapabilityRule("google_ads.update_keyword_*", Permission.ALLOW),
         # Deny all other operations (no catchall allow)
     ]
 
