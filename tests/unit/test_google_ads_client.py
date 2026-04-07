@@ -379,6 +379,24 @@ def test_get_keyword_performance_requires_capability():
     mock_guard.check.assert_called_once_with("google_ads.get_keyword_performance")
 
 
+def test_list_keywords_rejects_non_numeric_campaign_id():
+    """list_keywords must reject non-numeric campaign_id to prevent GAQL injection."""
+    client = GoogleAdsClient()
+    from src.mcp.google_ads_client import GoogleAdsClientError
+
+    with pytest.raises(GoogleAdsClientError, match="must be numeric"):
+        client.list_keywords(customer_id="123", campaign_id="abc-123")
+
+
+def test_get_keyword_performance_rejects_non_numeric_campaign_id():
+    """get_keyword_performance must reject non-numeric campaign_id to prevent GAQL injection."""
+    client = GoogleAdsClient()
+    from src.mcp.google_ads_client import GoogleAdsClientError
+
+    with pytest.raises(GoogleAdsClientError, match="must be numeric"):
+        client.get_keyword_performance(customer_id="123", campaign_id="abc-123")
+
+
 # ─── get_ad_copy ────────────────────────────────────────────────────────────────
 
 def test_get_ad_copy_method_exists():

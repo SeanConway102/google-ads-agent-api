@@ -145,6 +145,11 @@ class GoogleAdsClient:
         List all keywords in a campaign.
         Requires: google_ads.list_keywords
         """
+        if not campaign_id.isdigit():
+            raise GoogleAdsClientError(
+                f"Invalid campaign_id {campaign_id!r}: must be numeric"
+            )
+
         def _call() -> list[Keyword]:
             from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
             client = self._get_client()
@@ -275,6 +280,11 @@ class GoogleAdsClient:
         Get keyword-level performance metrics for a campaign.
         Requires: google_ads.get_keyword_performance
         """
+        if not campaign_id.isdigit():
+            raise GoogleAdsClientError(
+                f"Invalid campaign_id {campaign_id!r}: must be numeric"
+            )
+
         def _call() -> list[dict]:
             from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
             client = self._get_client()
