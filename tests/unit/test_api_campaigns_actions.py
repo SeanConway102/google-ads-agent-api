@@ -132,6 +132,30 @@ class TestApproveCampaignAction:
 
         assert response.status_code == 404
 
+    def test_approve_returns_404_when_already_approved(self, mock_adapter, client):
+        """
+        When the debate is already in APPROVED phase (not PENDING_MANUAL_REVIEW),
+        the approve endpoint must return 404 — there is nothing to approve.
+        """
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+
+        mock_adapter.get_campaign.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "campaign_id": campaign_uuid,
+            "phase": "approved",  # already approved
+            "round_number": 1,
+            "green_proposals": [],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        response = client.post(f"/campaigns/{campaign_uuid}/approve")
+
+        assert response.status_code == 404
+
     def test_approve_returns_approved_status_and_campaign_id(self, mock_adapter, client):
         """Returns {status: approved, campaign_id: ...} on success."""
         campaign_uuid = uuid.uuid4()
