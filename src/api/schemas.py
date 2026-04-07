@@ -61,15 +61,15 @@ class CampaignResponse(BaseModel):
     customer_id: str
     name: str
     status: CampaignStatus
-    campaign_type: CampaignType
+    campaign_type: Optional[CampaignType] = None
     owner_tag: Optional[str]
     created_at: datetime
     last_synced_at: Optional[datetime]
     last_reviewed_at: Optional[datetime]
     # HITL fields
-    hitl_enabled: bool = False
+    hitl_enabled: Optional[bool] = False
     owner_email: Optional[str] = None
-    hitl_threshold: str = "budget>20pct,keyword_add>5"
+    hitl_threshold: Optional[str] = "budget>20pct,keyword_add>5"
 
 
 class CampaignUpdate(BaseModel):

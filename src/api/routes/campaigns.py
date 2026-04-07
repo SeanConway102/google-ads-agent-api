@@ -14,6 +14,7 @@ from src.api.schemas import (
     CampaignListResponse,
     CampaignResponse,
     CampaignStatus,
+    CampaignType,
     CampaignUpdate,
     OverrideResponse,
 )
@@ -38,13 +39,25 @@ def _campaign_to_response(row: dict) -> CampaignResponse:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Campaign has unknown status: {row['status']!r}",
         )
+
+    # Convert campaign_type string to enum; None is allowed
+    campaign_type_val = None
+    if row.get("campaign_type") is not None:
+        try:
+            campaign_type_val = CampaignType(row["campaign_type"])
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Campaign has unknown campaign_type: {row['campaign_type']!r}",
+            )
+
     return CampaignResponse(
         id=row["id"],
         campaign_id=row["campaign_id"],
         customer_id=row["customer_id"],
         name=row["name"],
         status=campaign_status,
-        campaign_type=row["campaign_type"],
+        campaign_type=campaign_type_val,
         owner_tag=row.get("owner_tag"),
         created_at=row["created_at"],
         last_synced_at=row.get("last_synced_at"),
