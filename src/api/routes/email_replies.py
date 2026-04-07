@@ -88,43 +88,44 @@ def handle_email_reply(body: EmailReplyPayload) -> EmailReplyResponse:
     intent = _determine_intent(body.body)
 
     if intent == "approve":
+        # Execute approved proposals BEFORE saving APPROVED phase.
+        # If execution fails, we must NOT mark the debate as approved —
+        # otherwise the owner believes their approval was applied when it wasn't.
+        guard = CapabilityGuard()
+        gads_client = GoogleAdsClient(customer_id=campaign_row["customer_id"])
+        proposals = debate_row.get("green_proposals") or []
+        for proposal in proposals:
+            ptype = proposal.get("type", "")
+            if ptype == "keyword_add":
+                guard.check("google_ads.add_keywords")
+                gads_client.add_keywords(
+                    customer_id=campaign_row["customer_id"],
+                    ad_group_id=proposal.get("ad_group_id", ""),
+                    keywords=proposal.get("keywords", []),
+                )
+            elif ptype == "keyword_remove":
+                guard.check("google_ads.remove_keywords")
+                gads_client.remove_keywords(
+                    customer_id=campaign_row["customer_id"],
+                    keyword_resource_names=proposal.get("resource_names", []),
+                )
+            elif ptype == "bid_update":
+                guard.check("google_ads.update_keyword_bids")
+                gads_client.update_keyword_bids(
+                    customer_id=campaign_row["customer_id"],
+                    updates=proposal.get("updates", []),
+                )
+            elif ptype == "match_type_update":
+                guard.check("google_ads.update_keyword_match_types")
+                gads_client.update_keyword_match_types(
+                    customer_id=campaign_row["customer_id"],
+                    updates=proposal.get("updates", []),
+                )
+
+        # Only mark as approved after all proposals execute successfully
         updated = dict(debate_row)
         updated["phase"] = Phase.APPROVED.value
         _adapter().save_debate_state(updated)
-
-        # Execute approved proposals
-        guard = CapabilityGuard()
-        gads_client = GoogleAdsClient(customer_id=campaign_row["customer_id"])
-        for proposal in (debate_row.get("green_proposals") or []):
-            ptype = proposal.get("type", "")
-            try:
-                if ptype == "keyword_add":
-                    guard.check("google_ads.add_keywords")
-                    gads_client.add_keywords(
-                        customer_id=campaign_row["customer_id"],
-                        ad_group_id=proposal.get("ad_group_id", ""),
-                        keywords=proposal.get("keywords", []),
-                    )
-                elif ptype == "keyword_remove":
-                    guard.check("google_ads.remove_keywords")
-                    gads_client.remove_keywords(
-                        customer_id=campaign_row["customer_id"],
-                        keyword_resource_names=proposal.get("resource_names", []),
-                    )
-                elif ptype == "bid_update":
-                    guard.check("google_ads.update_keyword_bids")
-                    gads_client.update_keyword_bids(
-                        customer_id=campaign_row["customer_id"],
-                        updates=proposal.get("updates", []),
-                    )
-                elif ptype == "match_type_update":
-                    guard.check("google_ads.update_keyword_match_types")
-                    gads_client.update_keyword_match_types(
-                        customer_id=campaign_row["customer_id"],
-                        updates=proposal.get("updates", []),
-                    )
-            except Exception:
-                pass  # capability denied — skip
 
         return EmailReplyResponse(
             status="approved",
