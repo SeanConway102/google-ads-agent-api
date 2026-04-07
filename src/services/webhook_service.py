@@ -63,8 +63,8 @@ async def deliver_webhook(
         headers["X-Webhook-Signature"] = signature
 
     async with httpx.AsyncClient(timeout=10.0) as client:
+        last_error: str | None = None
         for attempt in range(MAX_RETRIES + 1):
-            last_error = None
             try:
                 response = await client.post(url, content=body, headers=headers)
                 if response.status_code < 400:
