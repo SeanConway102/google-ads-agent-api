@@ -136,6 +136,47 @@ class TestApproveCampaignAction:
         assert data["campaign_id"] == str(campaign_uuid)
         mock_adapter.save_debate_state.assert_called_once()
 
+    def test_approve_returns_approved_when_guard_denies_all_proposals(self, mock_adapter, client):
+        """When CapabilityGuard denies all proposals, still returns approved (proposals skipped)."""
+        from src.mcp.capability_guard import CapabilityDenied
+
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        debate_row = {
+            "id": 1,
+            "cycle_date": "2026-04-06",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 5,
+            "green_proposals": [{"type": "keyword_add", "keywords": ["shoes"]}],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_adapter.get_campaign.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
+
+        # Guard denies the capability
+        guard_mock = MagicMock()
+        guard_mock.check.side_effect = CapabilityDenied("google_ads.add_keywords")
+
+        def patched_guard():
+            return guard_mock
+
+        import src.api.routes.campaigns as campaigns_module
+        original = campaigns_module.CapabilityGuard
+        campaigns_module.CapabilityGuard = patched_guard
+        try:
+            response = client.post(f"/campaigns/{campaign_uuid}/approve")
+            # Should still return 200 — denied proposals are skipped
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "approved"
+        finally:
+            campaigns_module.CapabilityGuard = original
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # RED: Failing tests for CM-007 — POST /campaigns/{uuid}/override
@@ -207,3 +248,34 @@ class TestOverrideCampaignAction:
 
         assert response.status_code == 200
         mock_adapter.save_debate_state.assert_not_called()
+
+    def test_override_returns_403_when_guard_denies_action(self, mock_adapter, client):
+        """Override returns 403 when CapabilityGuard denies the action."""
+        from src.mcp.capability_guard import CapabilityDenied
+
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+
+        mock_adapter.get_campaign.return_value = campaign_row
+
+        # Make guard.check raise CapabilityDenied for google_ads.keyword_add
+        guard_mock = MagicMock()
+        guard_mock.check.side_effect = CapabilityDenied("google_ads.keyword_add")
+
+        def patched_guard():
+            return guard_mock
+
+        import src.api.routes.campaigns as campaigns_module
+        original = campaigns_module.CapabilityGuard
+        campaigns_module.CapabilityGuard = patched_guard
+        try:
+            response = client.post(
+                f"/campaigns/{campaign_uuid}/override",
+                json={"action_type": "keyword_add", "keywords": ["emergency keyword"]},
+            )
+            assert response.status_code == 403
+            data = response.json()
+            assert "not allowed" in data["detail"].lower() or "denied" in data["detail"].lower()
+        finally:
+            campaigns_module.CapabilityGuard = original
