@@ -79,17 +79,21 @@ All endpoints (except `/health`) require `X-API-Key` header.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check (no auth) |
-| GET | `/api/campaigns` | List all campaigns |
-| POST | `/api/campaigns` | Create a campaign |
-| GET | `/api/campaigns/{id}` | Get a campaign |
-| DELETE | `/api/campaigns/{id}` | Delete a campaign |
-| GET | `/api/wiki/search?q=` | Search wiki entries |
-| POST | `/api/wiki` | Create wiki entry |
-| GET | `/api/audit` | Query audit logs |
-| POST | `/api/webhooks` | Register webhook |
-| GET | `/api/webhooks` | List webhooks |
-| DELETE | `/api/webhooks/{id}` | Delete webhook |
-| GET | `/api/mcp/tools` | List MCP tools |
+| GET | `/campaigns` | List all campaigns |
+| POST | `/campaigns` | Create a campaign |
+| GET | `/campaigns/{id}` | Get a campaign |
+| PATCH | `/campaigns/{id}` | Update HITL settings |
+| DELETE | `/campaigns/{id}` | Delete a campaign |
+| GET | `/campaigns/{id}/hitl/proposals` | List HITL proposals |
+| GET | `/campaigns/{id}/hitl/proposals/{proposal_id}` | Get single HITL proposal |
+| POST | `/campaigns/{id}/hitl/proposals/{proposal_id}/decide` | Approve/reject proposal |
+| GET | `/wiki` | Search wiki entries |
+| POST | `/wiki` | Create wiki entry |
+| GET | `/audit` | Query audit logs |
+| POST | `/webhooks` | Register webhook |
+| GET | `/webhooks` | List webhooks |
+| DELETE | `/webhooks/{id}` | Delete webhook |
+| POST | `/research/trigger` | Manually trigger research cycle |
 
 ## Daily Research Cycle
 
@@ -129,6 +133,57 @@ The agent fires webhook events to registered endpoints:
 - Campaign `api_key_token` is stripped before passing to agents
 - Webhook payloads are HMAC-SHA256 signed
 
+## Human-in-the-Loop (HITL) Email Approval
+
+For high-impact proposals (budget changes >20%, keyword adds >5, keyword removals, match type changes), the agent routes proposals to email approval instead of auto-executing.
+
+### How it works
+
+1. Green Team proposes changes via the research cycle
+2. Proposals above threshold are held for human approval
+3. Email is sent to the campaign's `owner_email` with proposal details
+4. Coordinator approves or rejects via the REST API
+5. Approved proposals execute; rejected ones are logged and skipped
+
+### HITL settings (per campaign)
+
+| Field | Description |
+|-------|-------------|
+| `hitl_enabled` | Enable email approval for above-threshold proposals |
+| `owner_email` | Email address to send approval requests |
+| `hitl_threshold` | Threshold rules string (default: `budget>20pct,keyword_add>5`) |
+
+Update via `PATCH /campaigns/{id}`:
+```json
+{
+  "hitl_enabled": true,
+  "owner_email": "ads-team@example.com"
+}
+```
+
+### HITL REST API
+
+```bash
+# List pending proposals
+GET /campaigns/{id}/hitl/proposals
+
+# Approve a proposal
+POST /campaigns/{id}/hitl/proposals/{proposal_id}/decide
+{"decision": "approved", "notes": "LGTM"}
+
+# Reject a proposal
+POST /campaigns/{id}/hitl/proposals/{proposal_id}/decide
+{"decision": "rejected", "notes": "Too aggressive"}
+```
+
+### Weekly Digest
+
+Every Monday at 9am UTC, a digest email is sent to owners of HITL-enabled campaigns with:
+- Week's impressions, clicks, spend, and CTR
+- Count of pending/approved/rejected proposals
+
+Set `HITL_WEEKLY_CRON=0 9 * * 1` (default) to configure the schedule.
+
 ## Testing
 
 ```bash
@@ -146,14 +201,16 @@ pytest tests/ --cov=src --cov-report=term-missing
 
 ```
 src/
-  agents/           # Green Team, Red Team, Coordinator agents
-  api/              # FastAPI routes and schemas
-  cron/             # Daily research cycle script
+  agents/           # Green Team, Red Team, Coordinator, debate state
+  api/routes/       # FastAPI route handlers (campaigns, wiki, webhooks, hitl, etc.)
+  api/schemas.py    # Pydantic request/response models
+  api/middleware.py # X-API-Key authentication
+  cron/             # Daily research cycle + weekly digest cron
   db/               # Database adapter and schema
-  llm/              # LLM adapter (MiniMax)
+  llm/              # LLM adapter (MiniMax, swappable)
   mcp/              # Google Ads MCP server and capability guard
   research/         # Validator, wiki writer, research sources
-  services/         # Audit and webhook services
+  services/         # Audit, webhook, email, and impact assessor services
   config.py         # Environment configuration
   main.py           # FastAPI app entrypoint
 ```

@@ -75,20 +75,34 @@ GOOGLE_ADS_REFRESH_TOKEN=${GOOGLE_ADS_REFRESH_TOKEN:-CHANGE_ME}
 MINIMAX_API_KEY=${MINIMAX_API_KEY:-CHANGE_ME}
 RESEARCH_CRON=${RESEARCH_CRON:-0 8 * * *}
 MAX_DEBATE_ROUNDS=${MAX_DEBATE_ROUNDS:-5}
+# HITL (Human-in-the-Loop) — email approval for high-impact proposals
+HITL_ENABLED=${HITL_ENABLED:-true}
+RESEND_API_KEY=${RESEND_API_KEY:-CHANGE_ME}
+RESEND_INBOUND_SECRET=${RESEND_INBOUND_SECRET:-CHANGE_ME}
+HITL_DEFAULT_EMAIL=${HITL_DEFAULT_EMAIL:-}
+HITL_PROPOSAL_TTL_DAYS=${HITL_PROPOSAL_TTL_DAYS:-7}
+HITL_WEEKLY_CRON=${HITL_WEEKLY_CRON:-0 9 * * 1}
 EOF
 chmod 600 "$ENV_FILE"
 echo "  .env created at $ENV_FILE"
 echo "  IMPORTANT: Edit $ENV_FILE and replace all CHANGE_ME values with real credentials!"
 
-# ── 6. Cron job for daily research ────────────────────────────────────────────
-echo "[6/7] Setting up cron job for daily research..."
-CRON_CMD="0 8 * * * cd $APP_DIR && source venv/bin/activate && python scripts/run_research_cycle.py >> /var/log/ads-research.log 2>&1"
-echo "$CRON_CMD" | sudo tee /etc/cron.d/ads-research > /dev/null
+# ── 6. Cron job for daily research and weekly digest ─────────────────────────
+echo "[6/7] Setting up cron jobs..."
+# Daily research cycle — 8am server time
+CRON_DAILY="0 8 * * * cd $APP_DIR && source venv/bin/activate && python scripts/run_research_cycle.py >> /var/log/ads-research.log 2>&1"
+echo "$CRON_DAILY" | sudo tee /etc/cron.d/ads-research > /dev/null
 sudo chmod 644 /etc/cron.d/ads-research
-echo "  Cron job installed: research cycle runs daily at 8am server time"
+echo "  Daily research cron installed: 8am server time"
+
+# Weekly digest — 9am UTC every Monday
+CRON_WEEKLY="0 9 * * 1 cd $APP_DIR && source venv/bin/activate && python -m src.cron.weekly_digest >> /var/log/ads-weekly-digest.log 2>&1"
+echo "$CRON_WEEKLY" | sudo tee /etc/cron.d/ads-weekly-digest > /dev/null
+sudo chmod 644 /etc/cron.d/ads-weekly-digest
+echo "  Weekly digest cron installed: Monday 9am UTC"
 
 # ── 7. API server (systemd) ───────────────────────────────────────────────────
-echo "[7/7] Setting up systemd service for API server..."
+echo "[7/7] Setting up systemd service..."
 sudo tee /etc/systemd/system/ads-agent-api.service > /dev/null <<EOF
 [Unit]
 Description=Google Ads Agent API
