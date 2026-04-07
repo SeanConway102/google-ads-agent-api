@@ -446,13 +446,9 @@ class GoogleAdsClient:
             service = client.get_service("AdGroupCriterionService")
             operations = []
             for update in updates:
-                op = client.resource_utils.create_update_operation(
-                    "AdGroupCriterion",
-                    {
-                        "resource_name": update["resource_name"],
-                        "cpc_bid_micros": update["cpc_bid_micros"],
-                    },
-                )
+                op = client.get_type("AdGroupCriterionOperation")
+                op.update.ad_group_criterion.resource_name = update["resource_name"]
+                op.update.ad_group_criterion.cpc_bid_micros = update["cpc_bid_micros"]
                 operations.append(op)
             response = service.mutate_ad_group_criteria(customer_id=customer_id, operations=operations)
             return [str(r.resource_name) for r in response.results]
@@ -476,13 +472,9 @@ class GoogleAdsClient:
             service = client.get_service("AdGroupCriterionService")
             operations = []
             for update in updates:
-                op = client.resource_utils.create_update_operation(
-                    "AdGroupCriterion",
-                    {
-                        "resource_name": update["resource_name"],
-                        "keyword": {"match_type": update["match_type"]},
-                    },
-                )
+                op = client.get_type("AdGroupCriterionOperation")
+                op.update.ad_group_criterion.resource_name = update["resource_name"]
+                op.update.ad_group_criterion.keyword.match_type = update["match_type"]
                 operations.append(op)
             response = service.mutate_ad_group_criteria(customer_id=customer_id, operations=operations)
             return [str(r.resource_name) for r in response.results]
