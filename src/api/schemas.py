@@ -115,6 +115,12 @@ class OverrideResponse(BaseModel):
     audit_id: int
 
 
+class TriggerResponse(BaseModel):
+    """Response body for POST /research/trigger."""
+    status: str
+    campaign_id: Optional[str] = None
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Wiki schemas
 # ──────────────────────────────────────────────────────────────────────────────

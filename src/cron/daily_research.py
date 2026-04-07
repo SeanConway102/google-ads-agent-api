@@ -74,9 +74,13 @@ def _release_lock(lock_path: Path) -> None:
         pass
 
 
-def run_daily_research() -> None:
+def run_daily_research(target_campaign_id: str | None = None) -> None:
     """
     Run the daily research cycle across all active campaigns.
+
+    Args:
+        target_campaign_id: If provided, only this campaign is processed.
+            Otherwise all active campaigns are processed.
 
     For each campaign:
     1. Pull keyword performance from Google Ads
@@ -103,6 +107,8 @@ def run_daily_research() -> None:
         wiki_writer = WikiWriter(db)
         audit_service = AuditService(db)
         campaigns = db.list_campaigns()
+        if target_campaign_id:
+            campaigns = [c for c in campaigns if str(c["id"]) == target_campaign_id]
     except Exception as e:
         print(f"[Research Cycle {today}] ERROR: Failed to fetch campaigns: {e}")
         webhook_service.dispatch("cycle_error", {
