@@ -22,8 +22,16 @@ Autonomous headless Google Ads optimization agent with a three-agent adversarial
               ┌───────────────────────────────────┐
               │ Google Ads MCP Client            │
               │ (capability-gated)                │
-              │ - add_keywords (allowed)          │
-              │ - update_campaign_budget (denied) │
+              │ ALLOWED:                          │
+              │   - list_*, get_* (read ops)     │
+              │   - add_keywords                  │
+              │   - remove_keywords               │
+              │   - update_keyword_*              │
+              │ DENIED (always):                  │
+              │   - delete_*                      │
+              │   - transfer_*                    │
+              │   - update_payment_*               │
+              │   - change_daily_budget_*         │
               └───────────────────────────────────┘
 ```
 
@@ -128,8 +136,9 @@ The agent fires webhook events to registered endpoints:
 
 ## Security
 
-- All Google Ads write operations are **denied by default** via `CapabilityGuard`
-- Only `google_ads.add_keywords` is explicitly allowed
+- All Google Ads operations are **denied by default** via `CapabilityGuard`
+- Allowed by default: read operations (`list_*`, `get_*`) and safe keyword writes (`add_*`, `remove_*`, `update_keyword_*`)
+- Explicitly denied: `delete_*`, `transfer_*`, `update_payment_*`, `change_daily_budget_*`, and campaign mutations (`update_campaign_budget`, `update_campaign_status`) — blocked by guard even if capability guard rules are relaxed
 - Campaign `api_key_token` is stripped before passing to agents
 - Webhook payloads are HMAC-SHA256 signed
 
