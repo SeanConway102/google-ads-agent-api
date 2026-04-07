@@ -36,7 +36,16 @@ def run_daily_research() -> None:
     guard = CapabilityGuard()
     today = date.today().isoformat()
 
-    campaigns = db.list_campaigns()
+    try:
+        campaigns = db.list_campaigns()
+    except Exception as e:
+        print(f"[Research Cycle {today}] ERROR: Failed to fetch campaigns: {e}")
+        webhook_service.dispatch("cycle_error", {
+            "cycle_date": today,
+            "error": f"Failed to fetch campaigns: {e}",
+        })
+        return
+
     print(f"[Research Cycle {today}] Processing {len(campaigns)} campaign(s)...")
 
     for campaign in campaigns:
