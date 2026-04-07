@@ -491,8 +491,10 @@ def handle_call_tool(name: str, arguments: dict) -> dict[str, Any]:
     handler = TOOL_HANDLERS.get(name)
     if handler is None:
         return {
-            "error": f"Unknown tool: {name}",
-            "is_error": True,
+            "error": {
+                "code": -32601,
+                "message": f"Unknown tool: {name}",
+            },
         }
 
     try:
@@ -501,27 +503,35 @@ def handle_call_tool(name: str, arguments: dict) -> dict[str, Any]:
     except CapabilityDenied as exc:
         logger.warning("tool_capability_denied", extra={"tool": name, "operation": exc.operation})
         return {
-            "error": f"Capability denied: {exc.operation}",
-            "is_error": True,
+            "error": {
+                "code": -32000,
+                "message": f"Capability denied: {exc.operation}",
+            },
         }
     except GoogleAdsClientError as exc:
         logger.error("tool_google_ads_error", extra={"tool": name, "error": str(exc)})
         return {
-            "error": f"Google Ads API error: {exc}",
-            "is_error": True,
+            "error": {
+                "code": -32001,
+                "message": f"Google Ads API error: {exc}",
+            },
         }
     except ValueError as exc:
         # Validation errors (customer_id format, date format) — return as validation error
         logger.warning("tool_validation_error", extra={"tool": name, "error": str(exc)})
         return {
-            "error": f"Validation error: {exc}",
-            "is_error": True,
+            "error": {
+                "code": -32002,
+                "message": f"Validation error: {exc}",
+            },
         }
     except Exception as exc:
         logger.exception("tool_unexpected_error", extra={"tool": name})
         return {
-            "error": f"Unexpected error: {exc}",
-            "is_error": True,
+            "error": {
+                "code": -32603,
+                "message": f"Unexpected error: {exc}",
+            },
         }
 
 

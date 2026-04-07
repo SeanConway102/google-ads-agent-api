@@ -1,8 +1,6 @@
 """
-RED: Write the failing test first.
 Tests for src/mcp/server.py — MCP stdio transport, tool routing, error handling.
 """
-import json
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -37,8 +35,11 @@ class TestHandleCallTool:
 
     def test_unknown_tool_returns_error(self):
         result = handle_call_tool("nonexistent_tool", {})
-        assert result["is_error"] is True
-        assert "Unknown tool" in result["error"]
+        assert "error" in result
+        assert isinstance(result["error"], dict)
+        assert "code" in result["error"]
+        assert "message" in result["error"]
+        assert "Unknown tool" in result["error"]["message"]
 
     def test_capability_denied_returns_error(self):
         """When capability guard denies an operation, return a structured error response."""
@@ -48,8 +49,11 @@ class TestHandleCallTool:
             mock_client.list_campaigns.side_effect = CapabilityDenied("google_ads.list_campaigns", "test deny")
             mock_make.return_value = mock_client
             result = handle_call_tool("google_ads_list_campaigns", {"customer_id": "123-456-7890"})
-            assert result.get("is_error") is True
-            assert "capability denied" in result["error"].lower()
+            assert "error" in result
+            assert isinstance(result["error"], dict)
+            assert "code" in result["error"]
+            assert "message" in result["error"]
+            assert "capability denied" in result["error"]["message"].lower()
 
     def test_google_ads_client_error_returns_error(self):
         """GoogleAdsClientError is caught and returned as error response."""
@@ -59,7 +63,33 @@ class TestHandleCallTool:
             mock_client.list_campaigns.side_effect = GoogleAdsClientError("API failed")
             mock_make.return_value = mock_client
             result = handle_call_tool("google_ads_list_campaigns", {"customer_id": "123"})
-            assert result.get("is_error") is True
+            assert "error" in result
+            assert isinstance(result["error"], dict)
+
+    def test_unknown_tool_error_is_valid_jsonrpc_error(self):
+        """
+        handle_call_tool error for unknown tool must be a valid JSON-RPC error object.
+
+        JSON-RPC 2.0 spec requires error responses to have:
+          - code: integer (required)
+          - message: string (required)
+
+        main() does: response = {"jsonrpc": "2.0", "id": request_id, **result}
+        So handle_call_tool must return {"error": {"code": int, "message": str}}.
+        """
+        result = handle_call_tool("nonexistent_tool", {})
+
+        # Must have error field as an object (not string)
+        assert result.get("error") is not None, "missing 'error' field"
+        assert isinstance(result["error"], dict), (
+            f"error must be dict, got {type(result['error']).__name__}: {result['error']!r}"
+        )
+        # Must have code (integer) and message (string) per JSON-RPC spec
+        error_obj = result["error"]
+        assert "code" in error_obj, f"error object missing 'code' field: {error_obj!r}"
+        assert "message" in error_obj, f"error object missing 'message' field: {error_obj!r}"
+        assert isinstance(error_obj["code"], int), f"code must be int, got {type(error_obj['code']).__name__}"
+        assert isinstance(error_obj["message"], str), f"message must be str, got {type(error_obj['message']).__name__}"
 
 
 class TestToolHandlersExist:
