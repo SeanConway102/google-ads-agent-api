@@ -291,6 +291,29 @@ class PostgresAdapter(DatabaseAdapter):
     def delete_webhook(self, id: UUID) -> None:
         self.execute("DELETE FROM webhook_subscriptions WHERE id = %s", (str(id),))
 
+    def write_webhook_delivery_log(self, data: dict) -> dict:
+        """
+        Persist a webhook delivery attempt to webhook_delivery_log.
+        Handles state transitions: pending -> retrying -> delivered/failed.
+        """
+        return self.execute_returning(
+            """INSERT INTO webhook_delivery_log
+               (subscription_id, event, payload, status, attempts,
+                next_retry_at, last_error, delivered_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+               RETURNING *""",
+            (
+                str(data["subscription_id"]),
+                data["event"],
+                self._jsonb(data.get("payload", {})),
+                data["status"],
+                data.get("attempts", 0),
+                data.get("next_retry_at"),
+                data.get("last_error"),
+                data.get("delivered_at"),
+            ),
+        )
+
     # ─── HITL Proposals ───────────────────────────────────────────────────────
 
     def create_hitl_proposal(self, data: dict) -> dict:
