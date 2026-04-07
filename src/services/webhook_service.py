@@ -73,14 +73,20 @@ async def deliver_webhook(
                         extra={"url": url, "event": event_type, "status": response.status_code},
                     )
                     if db and subscription_id:
-                        db.write_webhook_delivery_log({
-                            "subscription_id": subscription_id,
-                            "event": event_type,
-                            "payload": payload,
-                            "status": "delivered",
-                            "attempts": attempt + 1,
-                            "delivered_at": __import__("datetime").datetime.now(),
-                        })
+                        try:
+                            db.write_webhook_delivery_log({
+                                "subscription_id": subscription_id,
+                                "event": event_type,
+                                "payload": payload,
+                                "status": "delivered",
+                                "attempts": attempt + 1,
+                                "delivered_at": __import__("datetime").datetime.now(),
+                            })
+                        except Exception as exc:
+                            logger.warning(
+                                "webhook_delivery_log_write_failed",
+                                extra={"url": url, "event": event_type, "error": str(exc)},
+                            )
                     return True
                 last_error = f"HTTP {response.status_code}"
                 logger.warning(
@@ -105,15 +111,21 @@ async def deliver_webhook(
                     delay = RETRY_BASE_DELAY * (2 ** attempt)
                     next_retry = __import__("datetime").datetime.now(
                     ) + __import__("datetime").timedelta(seconds=delay)
-                    db.write_webhook_delivery_log({
-                        "subscription_id": subscription_id,
-                        "event": event_type,
-                        "payload": payload,
-                        "status": "retrying",
-                        "attempts": attempt + 1,
-                        "next_retry_at": next_retry,
-                        "last_error": last_error,
-                    })
+                    try:
+                        db.write_webhook_delivery_log({
+                            "subscription_id": subscription_id,
+                            "event": event_type,
+                            "payload": payload,
+                            "status": "retrying",
+                            "attempts": attempt + 1,
+                            "next_retry_at": next_retry,
+                            "last_error": last_error,
+                        })
+                    except Exception as exc:
+                        logger.warning(
+                            "webhook_delivery_log_write_failed",
+                            extra={"url": url, "event": event_type, "error": str(exc)},
+                        )
 
             if attempt < MAX_RETRIES:
                 delay = RETRY_BASE_DELAY * (2 ** attempt)
@@ -124,14 +136,20 @@ async def deliver_webhook(
         extra={"url": url, "event": event_type, "max_retries": MAX_RETRIES},
     )
     if db and subscription_id:
-        db.write_webhook_delivery_log({
-            "subscription_id": subscription_id,
-            "event": event_type,
-            "payload": payload,
-            "status": "failed",
-            "attempts": MAX_RETRIES + 1,
-            "last_error": last_error,
-        })
+        try:
+            db.write_webhook_delivery_log({
+                "subscription_id": subscription_id,
+                "event": event_type,
+                "payload": payload,
+                "status": "failed",
+                "attempts": MAX_RETRIES + 1,
+                "last_error": last_error,
+            })
+        except Exception as exc:
+            logger.warning(
+                "webhook_delivery_log_write_failed",
+                extra={"url": url, "event": event_type, "error": str(exc)},
+            )
     return False
 
 
