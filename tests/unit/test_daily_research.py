@@ -21,28 +21,25 @@ class TestRunDailyResearch:
 
     def test_concurrent_run_aborts_when_lock_held(self, monkeypatch):
         """When another cycle is already running, run_daily_research returns early without processing."""
-        from src.cron import daily_research as dr_module
-        from src.cron.daily_research import run_daily_research
-
-        # Prevent the real lock from being acquired — the function should abort early
-        # without touching the database. Using monkeypatch.setitem on sys.modules
-        # is NOT needed; we just need to shadow the function at the call site.
-        # The simplest reliable way: patch the module's _acquire_lock via setattr.
-        # We store the original and restore it using monkeypatch's undo mechanism.
-        original = dr_module._acquire_lock
-        monkeypatch.setattr(dr_module, "_acquire_lock", lambda lock_path: False)
-
-        # Track whether PostgresAdapter was called (only if lock is acquired)
+        # Patch at the import string level so run_daily_research's own globals
+        # get the fake, and the cleanup via del properly removes the name
+        # (not just the module.__dict__ entry that __getattr__ reloads).
+        original = __import__("src.cron.daily_research",
+                               fromlist=["_acquire_lock"])._acquire_lock
+        # Track whether PostgresAdapter was called
         adapter_called = False
-        original_adapter = dr_module.PostgresAdapter
+        original_adapter = __import__("src.cron.daily_research",
+                                       fromlist=["PostgresAdapter"]).PostgresAdapter
 
         def tracking_adapter(*args, **kwargs):
             nonlocal adapter_called
             adapter_called = True
             return original_adapter(*args, **kwargs)
 
-        monkeypatch.setattr(dr_module, "PostgresAdapter", tracking_adapter)
-        run_daily_research()
+        with patch("src.cron.daily_research._acquire_lock", lambda lock_path: False):
+            with patch("src.cron.daily_research.PostgresAdapter", tracking_adapter):
+                from src.cron.daily_research import run_daily_research
+                run_daily_research()
 
         # Lock was not acquired → PostgresAdapter should not have been called
         assert adapter_called is False, "PostgresAdapter was called despite lock not acquired"
