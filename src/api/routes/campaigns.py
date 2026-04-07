@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Path, status
 
 from src.api.schemas import (
     CampaignCreate,
+    CampaignInsights,
     CampaignListResponse,
     CampaignResponse,
     CampaignStatus,
@@ -89,3 +90,48 @@ def delete_campaign(campaign_id: Annotated[UUID, Path(description="Campaign UUID
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
     _adapter().delete_campaign(campaign_id)
+
+
+@router.get("/{campaign_id}/insights", response_model=CampaignInsights)
+def get_campaign_insights(
+    campaign_id: Annotated[UUID, Path(description="Campaign UUID")],
+) -> CampaignInsights:
+    """
+    Get current optimization insights for a campaign.
+
+    Returns the campaign data along with the latest debate state:
+    green proposals, red objections, phase, and round number.
+    Returns null debate fields if no debate has run yet.
+    """
+    row = _adapter().get_campaign(campaign_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+
+    debate_row = _adapter().get_latest_debate_state_any_cycle(campaign_id)
+
+    try:
+        campaign_status = CampaignStatus(row["status"])
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Campaign has unknown status: {row['status']!r}",
+        )
+
+    return CampaignInsights(
+        id=row["id"],
+        campaign_id=row["campaign_id"],
+        customer_id=row["customer_id"],
+        name=row["name"],
+        status=campaign_status,
+        campaign_type=row["campaign_type"],
+        owner_tag=row.get("owner_tag"),
+        created_at=row["created_at"],
+        last_synced_at=row.get("last_synced_at"),
+        last_reviewed_at=row.get("last_reviewed_at"),
+        phase=str(debate_row["phase"]) if debate_row else None,
+        round_number=int(debate_row["round_number"]) if debate_row else None,
+        green_proposals=debate_row["green_proposals"] if debate_row else None,
+        red_objections=debate_row["red_objections"] if debate_row else None,
+        coordinator_decision=debate_row.get("coordinator_decision") if debate_row else None,
+        consensus_reached=bool(debate_row["consensus_reached"]) if debate_row else None,
+    )

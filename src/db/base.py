@@ -111,6 +111,11 @@ class DatabaseAdapter(ABC):
         """Get the most recent debate state for a campaign's cycle. Returns None if none."""
         pass
 
+    @abstractmethod
+    def get_latest_debate_state_any_cycle(self, campaign_id: UUID) -> Optional[dict]:
+        """Get the most recent debate state for a campaign across any cycle date. Returns None if none."""
+        pass
+
     # ─── Audit log ───────────────────────────────────────────────────────────
 
     @abstractmethod

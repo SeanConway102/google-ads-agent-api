@@ -205,6 +205,14 @@ class PostgresAdapter(DatabaseAdapter):
             (cycle_date, str(campaign_id))
         )
 
+    def get_latest_debate_state_any_cycle(self, campaign_id: UUID) -> Optional[dict]:
+        return self.fetch_one(
+            """SELECT * FROM debate_state
+               WHERE campaign_id = %s
+               ORDER BY id DESC LIMIT 1""",
+            (str(campaign_id),)
+        )
+
     # ─── Audit log ───────────────────────────────────────────────────────────
 
     def write_audit_log(self, data: dict) -> dict:
