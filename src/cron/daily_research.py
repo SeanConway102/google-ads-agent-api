@@ -235,26 +235,61 @@ def _execute_allowed_actions(
 ) -> None:
     """Execute proposals that are allowed by the capability guard.
 
-    Currently allowed: keyword.add (via google_ads.add_keywords).
-    All other write operations are blocked by CAPABILITY_FORBIDDEN.
+    Handles: keyword_add, keyword_remove, keyword_bid_update, keyword_match_type_update.
+    All other proposal types are silently skipped (capability denied or unknown type).
     """
+    if not proposals:
+        return
+
     for proposal in proposals:
         ptype = proposal.get("type", "")
         try:
             if ptype == "keyword_add":
-                # capability_guard allows google_ads.add_keywords
-                guard.check("google_ads.add_keywords")  # raises if not allowed
-                gads_client.add_keywords(
+                guard.check("google_ads.add_keywords")
+                resource_names = gads_client.add_keywords(
                     customer_id=campaign["customer_id"],
                     ad_group_id=proposal.get("ad_group_id", ""),
                     keywords=proposal.get("keywords", []),
                 )
-                print(f"    Executed: keyword_add → {proposal.get('target')}")
+                print(f"    Executed: keyword_add → {proposal.get('target')} ({len(resource_names)} added)")
+
             elif ptype == "keyword_remove":
                 guard.check("google_ads.remove_keywords")
-                print(f"    Blocked: keyword_remove not implemented in client")
-            # Blocked types (budget changes, bid updates, etc.) are silently skipped
-            # because CAPABILITY_FORBIDDEN would be raised for them
+                resource_names = proposal.get("resource_names", [])
+                if not resource_names:
+                    print(f"    Skipped: keyword_remove with empty resource_names")
+                    continue
+                removed = gads_client.remove_keywords(
+                    customer_id=campaign["customer_id"],
+                    keyword_resource_names=resource_names,
+                )
+                print(f"    Executed: keyword_remove → {len(removed)} removed")
+
+            elif ptype == "keyword_bid_update":
+                guard.check("google_ads.update_keyword_bids")
+                updates = proposal.get("updates", [])
+                if not updates:
+                    print(f"    Skipped: keyword_bid_update with empty updates")
+                    continue
+                updated = gads_client.update_keyword_bids(
+                    customer_id=campaign["customer_id"],
+                    updates=updates,
+                )
+                print(f"    Executed: keyword_bid_update → {len(updated)} updated")
+
+            elif ptype == "keyword_match_type_update":
+                guard.check("google_ads.update_keyword_match_types")
+                updates = proposal.get("updates", [])
+                if not updates:
+                    print(f"    Skipped: keyword_match_type_update with empty updates")
+                    continue
+                updated = gads_client.update_keyword_match_types(
+                    customer_id=campaign["customer_id"],
+                    updates=updates,
+                )
+                print(f"    Executed: keyword_match_type_update → {len(updated)} updated")
+
+            # Blocked/unknown types: silently skipped (capability denied or unrecognised)
         except CapabilityDenied:
             print(f"    Blocked by capability guard: {ptype}")
         except Exception as e:
