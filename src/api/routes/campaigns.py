@@ -18,6 +18,8 @@ from src.api.schemas import (
 )
 from src.agents.debate_state import Phase
 from src.db.postgres_adapter import PostgresAdapter
+from src.mcp.capability_guard import CapabilityDenied, CapabilityGuard
+from src.mcp.google_ads_client import GoogleAdsClient
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -149,7 +151,7 @@ def approve_campaign_action(
     Mark a pending agent action as approved (human-in-the-loop checkpoint).
 
     Only works when the campaign's debate state is in PENDING_MANUAL_REVIEW phase.
-    Transitions the debate state to operator-approved.
+    Transitions the debate state to operator-approved and executes allowed proposals.
     Returns 404 if the campaign doesn't exist or has no pending action.
     """
     row = _adapter().get_campaign(campaign_id)
@@ -163,9 +165,26 @@ def approve_campaign_action(
             detail="No pending action to approve for this campaign",
         )
 
+    # Persist approved phase first (preserve all existing fields via full row)
     updated = dict(debate_row)
     updated["phase"] = Phase.APPROVED.value
     _adapter().save_debate_state(updated)
+
+    # Execute approved proposals via MCP capability guard
+    guard = CapabilityGuard()
+    gads_client = GoogleAdsClient(customer_id=row["customer_id"])
+    for proposal in (debate_row.get("green_proposals") or []):
+        ptype = proposal.get("type", "")
+        try:
+            if ptype == "keyword_add":
+                guard.check("google_ads.add_keywords")
+                gads_client.add_keywords(
+                    customer_id=row["customer_id"],
+                    ad_group_id=proposal.get("ad_group_id", ""),
+                    keywords=proposal.get("keywords", []),
+                )
+        except CapabilityDenied:
+            pass  # blocked by capability guard — skip
 
     return ApproveResponse(status="approved", campaign_id=campaign_id)
 
@@ -178,13 +197,32 @@ def override_campaign_action(
     """
     Force a direct action on a campaign bypassing the adversarial debate.
 
-    Writes directly to audit_log with action_type 'manual_override'.
-    Does NOT invoke green/red team debate or modify debate_state.
+    Executes the action via MCP capability guard and writes manual_override to audit_log.
+    Does NOT invoke green/red team debate.
     For emergency use only.
     """
     row = _adapter().get_campaign(campaign_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+
+    # Attempt execution via MCP guard first — fail before auditing if blocked
+    guard = CapabilityGuard()
+    gads_client = GoogleAdsClient(customer_id=row["customer_id"])
+    try:
+        if body.action_type == "keyword_add":
+            guard.check("google_ads.add_keywords")
+            gads_client.add_keywords(
+                customer_id=row["customer_id"],
+                ad_group_id=body.ad_group_id or "",
+                keywords=body.keywords or [],
+            )
+        else:
+            guard.check(f"google_ads.{body.action_type}")
+    except CapabilityDenied:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Action {body.action_type!r} is not allowed by capability guard",
+        )
 
     audit_row = _adapter().write_audit_log({
         "cycle_date": "",
