@@ -278,6 +278,24 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["customer_id", "campaign_id"],
         },
     },
+    {
+        "name": "google_ads_get_ad_copy",
+        "description": "Get ad copy (expanded text ads) for a campaign. Returns headlines and descriptions for each ad.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Google Ads customer ID",
+                },
+                "campaign_id": {
+                    "type": "string",
+                    "description": "Campaign ID (numeric string)",
+                },
+            },
+            "required": ["customer_id", "campaign_id"],
+        },
+    },
 ]
 
 
@@ -461,6 +479,31 @@ def handle_get_keyword_performance(args: dict) -> dict[str, Any]:
     return {"campaign_id": campaign_id, "keywords": results, "total": len(results)}
 
 
+def handle_get_ad_copy(args: dict) -> dict[str, Any]:
+    customer_id: str = args["customer_id"]
+    campaign_id: str = args["campaign_id"]
+    _validate_customer_id(customer_id)
+    client = _make_client()
+    ads = client.get_ad_copy(customer_id, campaign_id)
+    return {
+        "campaign_id": campaign_id,
+        "ads": [
+            {
+                "id": ad.id,
+                "ad_group_id": ad.ad_group_id,
+                "headline_part1": ad.headline_part1,
+                "headline_part2": ad.headline_part2,
+                "headline_part3": ad.headline_part3,
+                "description1": ad.description1,
+                "description2": ad.description2,
+                "status": ad.status,
+            }
+            for ad in ads
+        ],
+        "total": len(ads),
+    }
+
+
 TOOL_HANDLERS: dict[str, callable] = {
     "google_ads_list_campaigns": handle_list_campaigns,
     "google_ads_get_campaign": handle_get_campaign,
@@ -473,6 +516,7 @@ TOOL_HANDLERS: dict[str, callable] = {
     "google_ads_update_keyword_bids": handle_update_keyword_bids,
     "google_ads_update_keyword_match_types": handle_update_keyword_match_types,
     "google_ads_get_keyword_performance": handle_get_keyword_performance,
+    "google_ads_get_ad_copy": handle_get_ad_copy,
 }
 
 

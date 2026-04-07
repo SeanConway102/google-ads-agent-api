@@ -52,6 +52,20 @@ class PerformanceReport:
     avg_cpc_micros: int
 
 
+@dataclass
+class AdCopy:
+    """An ad copy (expanded text ad) — normalized response type."""
+    id: str
+    ad_group_id: str
+    campaign_id: str
+    headline_part1: str
+    headline_part2: str
+    headline_part3: str
+    description1: str
+    description2: str
+    status: str
+
+
 class GoogleAdsClientError(Exception):
     """Base exception for Google Ads client errors."""
     pass
@@ -301,7 +315,53 @@ class GoogleAdsClient:
 
         return self._call("google_ads.get_keyword_performance", _call)
 
-    def get_account_hierarchy(self, customer_id: str) -> dict[str, Any]:
+    def get_ad_copy(
+        self,
+        customer_id: str,
+        campaign_id: str,
+    ) -> list[AdCopy]:
+        """
+        Get ad copy (expanded text ads) for a campaign.
+        Requires: google_ads.get_ad_copy
+        """
+        def _call() -> list[AdCopy]:
+            from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
+            client = self._get_client()
+            service = client.get_service("GoogleAdsService")
+            query = f"""
+                SELECT
+                    ad_group_ad.id,
+                    ad_group.id,
+                    campaign.id,
+                    ad_group_ad.ad.expanded_text_ad.headline_part1,
+                    ad_group_ad.ad.expanded_text_ad.headline_part2,
+                    ad_group_ad.ad.expanded_text_ad.headline_part3,
+                    ad_group_ad.ad.expanded_text_ad.description1,
+                    ad_group_ad.ad.expanded_text_ad.description2,
+                    ad_group_ad.status
+                FROM ad_group_ad
+                WHERE campaign.id = '{campaign_id}'
+                  AND ad_group_ad.status != 'REMOVED'
+            """
+            request = SearchGoogleAdsRequest(customer_id=customer_id, query=query)
+            response = service.search(request=request)
+            results = []
+            for row in response:
+                ad = row.ad_group_ad
+                results.append(AdCopy(
+                    id=str(ad.id),
+                    ad_group_id=str(row.ad_group.id),
+                    campaign_id=str(row.campaign.id),
+                    headline_part1=ad.ad.expanded_text_ad.headline_part1 or "",
+                    headline_part2=ad.ad.expanded_text_ad.headline_part2 or "",
+                    headline_part3=ad.ad.expanded_text_ad.headline_part3 or "",
+                    description1=ad.ad.expanded_text_ad.description1 or "",
+                    description2=ad.ad.expanded_text_ad.description2 or "",
+                    status=str(ad.status),
+                ))
+            return results
+
+        return self._call("google_ads.get_ad_copy", _call)
         """
         Get the account hierarchy (MCC → customer accounts).
         Requires: google_ads.get_account_hierarchy
