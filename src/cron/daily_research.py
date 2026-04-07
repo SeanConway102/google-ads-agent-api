@@ -31,23 +31,31 @@ def _acquire_lock(lock_path: Path) -> bool:
     On other platforms: uses a PID file with existence check.
     Returns True if lock acquired, False if another cycle is already running.
     """
+    import sys
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Fast path: check if lock file with live PID already exists
     if lock_path.exists():
         try:
             old_pid = int(lock_path.read_text().strip())
-        except (ValueError, OSError):
-            pass
+            import os as _os
+            print(f"[LOCK DEBUG] lock_path={lock_path} old_pid={old_pid} current_pid={_os.getpid()} exists={_os.path.exists(lock_path.absolute())}", file=sys.stderr)
+        except (ValueError, OSError) as e:
+            print(f"[LOCK DEBUG] lock_path={lock_path} read error: {e}", file=sys.stderr)
         else:
             # Check if that process is still running
             if _is_process_alive(old_pid):
+                print(f"[LOCK DEBUG] old_pid={old_pid} still alive, returning False", file=sys.stderr)
                 return False
+            else:
+                print(f"[LOCK DEBUG] old_pid={old_pid} NOT alive, will overwrite", file=sys.stderr)
 
     try:
         lock_path.write_text(str(os.getpid()))
+        print(f"[LOCK DEBUG] wrote pid={os.getpid()} returning True", file=sys.stderr)
         return True
-    except OSError:
+    except OSError as e:
+        print(f"[LOCK DEBUG] write failed: {e} returning False", file=sys.stderr)
         return False
 
 
