@@ -34,6 +34,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         "/docs",
         "/openapi.json",
         "/redoc",
+        # POST /webhooks/inbound-email is called by Resend's servers using
+        # X-Resend-Webhook-Secret validation — they don't have our X-API-Key.
+        "/webhooks/inbound-email",
     }
 
     def __init__(self, app: ASGIApp) -> None:
