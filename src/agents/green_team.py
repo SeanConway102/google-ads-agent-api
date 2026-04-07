@@ -164,8 +164,8 @@ class GreenTeamAgent:
             (
                 str(campaign["id"]),
                 proposal.get("type", "unknown"),
-                proposal.get("impact_summary", proposal.get("change", "")),
-                proposal.get("reasoning", proposal.get("evidence", "")),
+                proposal.get("impact_summary", proposal.get("change", "")) or "",
+                proposal.get("reasoning", proposal.get("evidence", "")) or "",
             ),
         )
         return dict(row)
@@ -188,6 +188,6 @@ class GreenTeamAgent:
             to_email=owner_email,
             campaign_name=campaign.get("name", "Unknown Campaign"),
             proposal_type=proposal.get("type", "unknown"),
-            impact_summary=proposal.get("impact_summary", proposal.get("change", "")),
-            reasoning=proposal.get("reasoning", "")[:300],
+            impact_summary=proposal.get("impact_summary", proposal.get("change", "")) or "",
+            reasoning=(proposal.get("reasoning") or "")[:300],
         )
