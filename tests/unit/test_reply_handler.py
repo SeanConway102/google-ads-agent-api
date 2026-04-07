@@ -77,3 +77,42 @@ class TestHandleInboundReplyQuestion:
         assert call_args["campaign_id"] == campaign_uuid
         assert call_args["proposal_type"] == "question"
         assert "Can you explain" in call_args["reasoning"]
+
+    def test_question_does_not_store_proposal_when_hitl_disabled(self):
+        """
+        When hitl_enabled=False, question replies must NOT create hitl_proposals.
+        This prevents replies to non-HITL campaigns from creating spurious proposals.
+        """
+        campaign_uuid = uuid.uuid4()
+
+        mock_adapter = MagicMock()
+        mock_adapter.get_campaign_by_owner_email.return_value = {
+            "id": campaign_uuid,
+            "campaign_id": "cmp_001",
+            "customer_id": "cust_001",
+            "name": "Test Campaign",
+            "owner_email": "owner@example.com",
+            "hitl_enabled": False,  # HITL disabled
+        }
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "campaign_id": campaign_uuid,
+            "green_proposals": [
+                {"type": "keyword_add", "ad_group_id": "ag_001", "keywords": ["shoes"]},
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        with patch("src.services.reply_handler.PostgresAdapter", return_value=mock_adapter):
+            handle_inbound_reply(
+                from_email="owner@example.com",
+                to_email="reply@adsagent.ai",
+                subject="Re: [AdsAgent] Action required on campaign [#proposal-abc]",
+                body="Can you explain why this is needed?",
+            )
+
+        # Must NOT create any hitl_proposals entry
+        mock_adapter.create_hitl_proposal.assert_not_called()
