@@ -379,6 +379,42 @@ def test_get_keyword_performance_requires_capability():
     mock_guard.check.assert_called_once_with("google_ads.get_keyword_performance")
 
 
+# ─── get_ad_copy ────────────────────────────────────────────────────────────────
+
+def test_get_ad_copy_method_exists():
+    """GoogleAdsClient should have a get_ad_copy method."""
+    client = GoogleAdsClient()
+    assert hasattr(client, "get_ad_copy"), "get_ad_copy method not found"
+
+
+def test_get_ad_copy_rejects_non_numeric_campaign_id():
+    """get_ad_copy must reject non-numeric campaign_id to prevent GAQL injection."""
+    client = GoogleAdsClient()
+    from src.mcp.google_ads_client import GoogleAdsClientError
+
+    with pytest.raises(GoogleAdsClientError, match="must be numeric"):
+        client.get_ad_copy(customer_id="123", campaign_id="abc-123")
+
+
+def test_get_ad_copy_requires_capability():
+    """get_ad_copy should call _guard.check before making the API call."""
+    client = GoogleAdsClient()
+
+    mock_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.__iter__ = MagicMock(return_value=iter([]))
+    mock_service.search.return_value = mock_response
+
+    mock_client = MagicMock()
+    mock_client.get_service.return_value = mock_service
+
+    with patch.object(client, "_get_client", return_value=mock_client):
+        with patch.object(client, "_guard") as mock_guard:
+            client.get_ad_copy(customer_id="123", campaign_id="456")
+
+    mock_guard.check.assert_called_once_with("google_ads.get_ad_copy")
+
+
 # ─── list_keywords ───────────────────────────────────────────────────────────────
 
 def test_list_keywords_method_exists():

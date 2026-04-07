@@ -324,6 +324,11 @@ class GoogleAdsClient:
         Get ad copy (expanded text ads) for a campaign.
         Requires: google_ads.get_ad_copy
         """
+        if not campaign_id.isdigit():
+            raise GoogleAdsClientError(
+                f"Invalid campaign_id {campaign_id!r}: must be numeric"
+            )
+
         def _call() -> list[AdCopy]:
             from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
             client = self._get_client()
