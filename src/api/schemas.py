@@ -323,6 +323,24 @@ class HitlDecisionResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Email reply webhook schemas
+# ──────────────────────────────────────────────────────────────────────────────
+
+class EmailReplyPayload(BaseModel):
+    """Request body for POST /email-replies (Resend inbound email webhook)."""
+    email_from: str = Field(..., description="Email address of the replying owner")
+    subject: str = Field(default="", description="Email subject line")
+    body: str = Field(..., description="Plain text body of the email reply")
+    in_reply_to: Optional[str] = Field(default=None, description="Resend In-Reply-To header")
+
+
+class EmailReplyResponse(BaseModel):
+    """Response for email reply webhook."""
+    status: str  # "approved" | "rejected" | "question_asked"
+    campaign_id: UUID
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Error schemas
 # ──────────────────────────────────────────────────────────────────────────────
 

@@ -29,6 +29,7 @@ class Phase(str, Enum):
     WIKI_UPDATE = "wiki_update"
     PENDING_MANUAL_REVIEW = "pending_manual_review"
     APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 @dataclass

@@ -96,6 +96,13 @@ class PostgresAdapter(DatabaseAdapter):
             (str(id),)
         )
 
+    def get_campaign_by_owner_email(self, owner_email: str) -> Optional[dict]:
+        """Find a campaign by the owner's email address."""
+        return self.fetch_one(
+            "SELECT * FROM campaigns WHERE owner_email = %s LIMIT 1",
+            (owner_email,),
+        )
+
     def list_campaigns(self) -> List[dict]:
         return self.fetch_all(
             "SELECT * FROM campaigns ORDER BY created_at DESC"
