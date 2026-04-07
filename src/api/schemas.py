@@ -95,6 +95,26 @@ class CampaignInsights(BaseModel):
     consensus_reached: Optional[bool] = None
 
 
+class ActionPayload(BaseModel):
+    """Request body for POST /campaigns/{uuid}/override."""
+    action_type: str = Field(..., min_length=1, description="Action type e.g. keyword_add, keyword_remove")
+    keywords: Optional[List[str]] = Field(default=None, description="Keywords for keyword actions")
+    bid_adjustment: Optional[float] = Field(default=None, description="Bid adjustment value")
+    ad_group_id: Optional[str] = Field(default=None, description="Ad group ID target")
+
+
+class ApproveResponse(BaseModel):
+    """Response body for POST /campaigns/{uuid}/approve."""
+    status: str
+    campaign_id: UUID
+
+
+class OverrideResponse(BaseModel):
+    """Response body for POST /campaigns/{uuid}/override."""
+    status: str
+    audit_id: int
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Wiki schemas
 # ──────────────────────────────────────────────────────────────────────────────

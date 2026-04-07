@@ -7,12 +7,16 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Path, status
 
 from src.api.schemas import (
+    ActionPayload,
+    ApproveResponse,
     CampaignCreate,
     CampaignInsights,
     CampaignListResponse,
     CampaignResponse,
     CampaignStatus,
+    OverrideResponse,
 )
+from src.agents.debate_state import Phase
 from src.db.postgres_adapter import PostgresAdapter
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
@@ -135,3 +139,71 @@ def get_campaign_insights(
         coordinator_decision=debate_row.get("coordinator_decision") if debate_row else None,
         consensus_reached=bool(debate_row["consensus_reached"]) if debate_row else None,
     )
+
+
+@router.post("/{campaign_id}/approve", response_model=ApproveResponse)
+def approve_campaign_action(
+    campaign_id: Annotated[UUID, Path(description="Campaign UUID")],
+) -> ApproveResponse:
+    """
+    Mark a pending agent action as approved (human-in-the-loop checkpoint).
+
+    Only works when the campaign's debate state is in PENDING_MANUAL_REVIEW phase.
+    Transitions the debate state to operator-approved.
+    Returns 404 if the campaign doesn't exist or has no pending action.
+    """
+    row = _adapter().get_campaign(campaign_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+
+    debate_row = _adapter().get_latest_debate_state_any_cycle(campaign_id)
+    if debate_row is None or Phase(debate_row["phase"]) != Phase.PENDING_MANUAL_REVIEW:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending action to approve for this campaign",
+        )
+
+    updated = dict(debate_row)
+    updated["phase"] = Phase.APPROVED.value
+    _adapter().save_debate_state(updated)
+
+    return ApproveResponse(status="approved", campaign_id=campaign_id)
+
+
+@router.post("/{campaign_id}/override", response_model=OverrideResponse)
+def override_campaign_action(
+    campaign_id: Annotated[UUID, Path(description="Campaign UUID")],
+    body: ActionPayload,
+) -> OverrideResponse:
+    """
+    Force a direct action on a campaign bypassing the adversarial debate.
+
+    Writes directly to audit_log with action_type 'manual_override'.
+    Does NOT invoke green/red team debate or modify debate_state.
+    For emergency use only.
+    """
+    row = _adapter().get_campaign(campaign_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+
+    audit_row = _adapter().write_audit_log({
+        "cycle_date": "",
+        "campaign_id": campaign_id,
+        "action_type": "manual_override",
+        "target": {
+            "campaign_name": row["name"],
+            "campaign_id": row["campaign_id"],
+            "action_type": body.action_type,
+        },
+        "green_proposal": {
+            "type": body.action_type,
+            "keywords": body.keywords,
+            "bid_adjustment": body.bid_adjustment,
+            "ad_group_id": body.ad_group_id,
+        },
+        "red_objections": [],
+        "coordinator_note": "Manual override by api-operator",
+        "debate_rounds": 0,
+    })
+
+    return OverrideResponse(status="override_applied", audit_id=audit_row["id"])

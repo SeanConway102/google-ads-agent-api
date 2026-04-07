@@ -28,6 +28,7 @@ class Phase(str, Enum):
     CONSENSUS_LOCKED = "consensus_locked"
     WIKI_UPDATE = "wiki_update"
     PENDING_MANUAL_REVIEW = "pending_manual_review"
+    APPROVED = "approved"
 
 
 @dataclass
