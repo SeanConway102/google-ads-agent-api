@@ -517,3 +517,155 @@ class TestRunDailyResearch:
                 setattr(dr, name, cls)
             dr.get_settings = original_dr_get_settings
             config_module.get_settings = original_get_settings
+
+    def test_validator_returns_none_skips_campaign(self):
+        """When validator.run_cycle returns None, campaign is skipped without error."""
+        from src.cron.daily_research import run_daily_research
+
+        cid = uuid4()
+        campaigns = [
+            {
+                "id": str(cid),
+                "campaign_id": "12345",
+                "customer_id": "cust_001",
+                "name": "Test Campaign",
+                "api_key_token": "token",
+                "status": "active",
+            }
+        ]
+
+        mock_db = MagicMock()
+        mock_db.list_campaigns.return_value = campaigns
+        mock_db.search_wiki.return_value = []
+
+        mock_validator = MagicMock()
+        mock_validator.run_cycle.return_value = None  # validator returned no state
+
+        mock_wiki_writer = MagicMock()
+        mock_webhook_service = MagicMock()
+        mock_audit_service = MagicMock()
+        mock_gads_client = MagicMock()
+        mock_gads_client.get_performance_report.return_value = MagicMock(
+            impressions=0, clicks=0, ctr=0.0, spend_micros=0,
+            conversions=0.0, avg_cpc_micros=0,
+        )
+
+        import src.cron.daily_research as dr
+        import src.config as config_module
+
+        original_get_settings = config_module.get_settings
+        original_dr_get_settings = dr.get_settings
+        config_module.get_settings = _mock_get_settings
+        dr.get_settings = _mock_get_settings
+
+        original_modules = {
+            "PostgresAdapter": dr.PostgresAdapter,
+            "GoogleAdsClient": dr.GoogleAdsClient,
+            "AdversarialValidator": dr.AdversarialValidator,
+            "WikiWriter": dr.WikiWriter,
+            "WebhookService": dr.WebhookService,
+            "AuditService": dr.AuditService,
+        }
+
+        dr.PostgresAdapter = MagicMock(return_value=mock_db)
+        dr.GoogleAdsClient = MagicMock(return_value=mock_gads_client)
+        dr.AdversarialValidator = MagicMock(return_value=mock_validator)
+        dr.WikiWriter = MagicMock(return_value=mock_wiki_writer)
+        dr.WebhookService = MagicMock(return_value=mock_webhook_service)
+        dr.AuditService = MagicMock(return_value=mock_audit_service)
+
+        try:
+            run_daily_research()
+            # No exception should be raised; no webhooks dispatched for this campaign
+            dispatch_calls = mock_webhook_service.dispatch.call_args_list
+            event_names = [call[0][0] for call in dispatch_calls]
+            # Should not fire consensus_reached or manual_review_required or cycle_error
+            assert "consensus_reached" not in event_names
+            assert "manual_review_required" not in event_names
+            assert "cycle_error" not in event_names
+        finally:
+            for name, cls in original_modules.items():
+                setattr(dr, name, cls)
+            dr.get_settings = original_dr_get_settings
+            config_module.get_settings = original_get_settings
+
+    def test_no_consensus_non_pending_phase_skips(self):
+        """When phase is not CONSENSUS_LOCKED and not PENDING_MANUAL_REVIEW, campaign is skipped."""
+        from src.cron.daily_research import run_daily_research
+
+        cid = uuid4()
+        campaigns = [
+            {
+                "id": str(cid),
+                "campaign_id": "12345",
+                "customer_id": "cust_001",
+                "name": "Test Campaign",
+                "api_key_token": "token",
+                "status": "active",
+            }
+        ]
+
+        mock_db = MagicMock()
+        mock_db.list_campaigns.return_value = campaigns
+        mock_db.search_wiki.return_value = []
+
+        # Return a state where phase is GREEN_PROPOSES (not consensus, not pending)
+        ongoing_state = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.GREEN_PROPOSES,
+            consensus_reached=False,
+            round_number=1,
+            green_proposals=[],
+            red_objections=[],
+        )
+
+        mock_validator = MagicMock()
+        mock_validator.run_cycle.return_value = ongoing_state
+
+        mock_wiki_writer = MagicMock()
+        mock_webhook_service = MagicMock()
+        mock_audit_service = MagicMock()
+        mock_gads_client = MagicMock()
+        mock_gads_client.get_performance_report.return_value = MagicMock(
+            impressions=0, clicks=0, ctr=0.0, spend_micros=0,
+            conversions=0.0, avg_cpc_micros=0,
+        )
+
+        import src.cron.daily_research as dr
+        import src.config as config_module
+
+        original_get_settings = config_module.get_settings
+        original_dr_get_settings = dr.get_settings
+        config_module.get_settings = _mock_get_settings
+        dr.get_settings = _mock_get_settings
+
+        original_modules = {
+            "PostgresAdapter": dr.PostgresAdapter,
+            "GoogleAdsClient": dr.GoogleAdsClient,
+            "AdversarialValidator": dr.AdversarialValidator,
+            "WikiWriter": dr.WikiWriter,
+            "WebhookService": dr.WebhookService,
+            "AuditService": dr.AuditService,
+        }
+
+        dr.PostgresAdapter = MagicMock(return_value=mock_db)
+        dr.GoogleAdsClient = MagicMock(return_value=mock_gads_client)
+        dr.AdversarialValidator = MagicMock(return_value=mock_validator)
+        dr.WikiWriter = MagicMock(return_value=mock_wiki_writer)
+        dr.WebhookService = MagicMock(return_value=mock_webhook_service)
+        dr.AuditService = MagicMock(return_value=mock_audit_service)
+
+        try:
+            run_daily_research()
+            # No consensus and not pending review → skip silently
+            dispatch_calls = mock_webhook_service.dispatch.call_args_list
+            event_names = [call[0][0] for call in dispatch_calls]
+            assert "consensus_reached" not in event_names
+            assert "manual_review_required" not in event_names
+            assert "cycle_error" not in event_names
+        finally:
+            for name, cls in original_modules.items():
+                setattr(dr, name, cls)
+            dr.get_settings = original_dr_get_settings
+            config_module.get_settings = original_get_settings
