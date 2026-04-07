@@ -61,15 +61,15 @@ class GoogleAdsCredentials:
         Returns a list of missing field names. Empty list means valid.
         """
         missing = []
-        if not self.developer_token:
+        if not self.developer_token or not self.developer_token.strip():
             missing.append("GOOGLE_ADS_DEVELOPER_TOKEN")
-        if not self.client_id:
+        if not self.client_id or not self.client_id.strip():
             missing.append("GOOGLE_ADS_CLIENT_ID")
-        if not self.client_secret:
+        if not self.client_secret or not self.client_secret.strip():
             missing.append("GOOGLE_ADS_CLIENT_SECRET")
-        if not self.refresh_token:
+        if not self.refresh_token or not self.refresh_token.strip():
             missing.append("GOOGLE_ADS_REFRESH_TOKEN")
-        if not self.customer_id:
+        if not self.customer_id or not self.customer_id.strip():
             missing.append("GOOGLE_ADS_CUSTOMER_ID")
         return missing
 
