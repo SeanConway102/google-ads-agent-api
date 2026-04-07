@@ -6,13 +6,67 @@ For each campaign with hitl_enabled=true and owner_email set:
   1. Expires stale pending HITL proposals
   2. Counts pending/approved/rejected hitl_proposals
   3. Sends weekly digest email via Resend
+
+Advisory locking prevents concurrent runs from the frequent cron schedule.
 """
+import os
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from src.config import get_settings
 from src.db.postgres_adapter import PostgresAdapter
 from src.services.email_service import send_weekly_digest
+
+LOCK_FILE = Path.home() / ".ads_agent_weekly_digest.lock"
+
+
+def _is_process_alive(pid: int) -> bool:
+    """Check whether a process with the given PID is currently running."""
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            return ctypes.windll.kernel32.OpenProcess(0, False, pid) != 0
+        except Exception:
+            return False
+    else:
+        return os.path.exists(f"/proc/{pid}")
+
+
+def _acquire_lock(lock_path: Path) -> bool:
+    """
+    Prevent concurrent digest runs using an exclusive file lock.
+
+    Uses a PID file with existence check — works on both POSIX and Windows.
+    Returns True if lock acquired, False if another process holds it.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if lock_path.exists():
+        try:
+            old_pid = int(lock_path.read_text().strip())
+            if old_pid == os.getpid():
+                pass  # will overwrite
+            elif _is_process_alive(old_pid):
+                return False
+        except (ValueError, OSError):
+            pass
+
+    try:
+        lock_path.write_text(str(os.getpid()))
+        return True
+    except OSError:
+        return False
+
+
+def _release_lock(lock_path: Path) -> None:
+    """Remove the lock file if it was created by this process."""
+    try:
+        if lock_path.exists() and lock_path.read_text().strip() == str(os.getpid()):
+            lock_path.unlink()
+    except OSError:
+        pass
 
 
 def _adapter() -> PostgresAdapter:
@@ -113,52 +167,59 @@ def send_weekly_digests() -> dict[str, int]:
 
     Returns {"sent": N, "failed": M} with counts of successful and failed sends.
     """
-    settings = get_settings()
-    ttl_days = settings.HITL_PROPOSAL_TTL_DAYS
+    if not _acquire_lock(LOCK_FILE):
+        print("[Weekly Digest] ABORTED: another digest run is already in progress (lock held).")
+        return {"sent": 0, "failed": 0}
 
-    # Expire old pending proposals before sending digests
-    _expire_old_proposals(ttl_days=ttl_days)
+    try:
+        settings = get_settings()
+        ttl_days = settings.HITL_PROPOSAL_TTL_DAYS
 
-    campaigns = _collect_active_hitl_campaigns()
-    sent = 0
-    failed = 0
+        # Expire old pending proposals before sending digests
+        _expire_old_proposals(ttl_days=ttl_days)
 
-    for campaign in campaigns:
-        owner_email = campaign.get("owner_email")
-        if not owner_email:
-            continue
+        campaigns = _collect_active_hitl_campaigns()
+        sent = 0
+        failed = 0
 
-        # Get proposal counts
-        pending, approved, rejected = _count_proposals_by_status(str(campaign["id"]))
+        for campaign in campaigns:
+            owner_email = campaign.get("owner_email")
+            if not owner_email:
+                continue
 
-        # Get performance data (placeholder — real impl would call Google Ads API)
-        performance_data = None
+            # Get proposal counts
+            pending, approved, rejected = _count_proposals_by_status(str(campaign["id"]))
 
-        data = _build_digest_data(
-            campaign=campaign,
-            performance_data=performance_data,
-            pending_count=pending,
-            approved_count=approved,
-            rejected_count=rejected,
-        )
+            # Get performance data (placeholder — real impl would call Google Ads API)
+            performance_data = None
 
-        try:
-            send_weekly_digest(
-                to_email=owner_email,
-                campaign_name=data["campaign_name"],
-                impressions=data["impressions"],
-                clicks=data["clicks"],
-                spend=data["spend"],
-                ctr=data["ctr"],
-                n_approved=data["n_approved"],
-                n_rejected=data["n_rejected"],
-                n_pending=data["n_pending"],
+            data = _build_digest_data(
+                campaign=campaign,
+                performance_data=performance_data,
+                pending_count=pending,
+                approved_count=approved,
+                rejected_count=rejected,
             )
-            sent += 1
-        except Exception:
-            failed += 1
 
-    return {"sent": sent, "failed": failed}
+            try:
+                send_weekly_digest(
+                    to_email=owner_email,
+                    campaign_name=data["campaign_name"],
+                    impressions=data["impressions"],
+                    clicks=data["clicks"],
+                    spend=data["spend"],
+                    ctr=data["ctr"],
+                    n_approved=data["n_approved"],
+                    n_rejected=data["n_rejected"],
+                    n_pending=data["n_pending"],
+                )
+                sent += 1
+            except Exception:
+                failed += 1
+
+        return {"sent": sent, "failed": failed}
+    finally:
+        _release_lock(LOCK_FILE)
 
 
 if __name__ == "__main__":
