@@ -52,9 +52,9 @@ def handle_inbound_reply(
 
     db = PostgresAdapter()
 
-    # Find campaign by owner email
+    # Find campaign by owner email (must have HITL enabled)
     campaign_row = db.get_campaign_by_owner_email(sender_email)
-    if not campaign_row:
+    if not campaign_row or not campaign_row.get("hitl_enabled"):
         return
 
     # Find pending debate state
