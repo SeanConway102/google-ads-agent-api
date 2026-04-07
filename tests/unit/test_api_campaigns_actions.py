@@ -25,7 +25,26 @@ def mock_adapter(monkeypatch):
 
 
 @pytest.fixture
-def campaign_app(mock_adapter):
+def mock_guard_and_client(monkeypatch):
+    """Mock CapabilityGuard.check() and GoogleAdsClient to avoid real API calls."""
+    mock_guard = MagicMock()
+    mock_guard.check.return_value = None  # allowed
+    mock_gads = MagicMock()
+    mock_gads.add_keywords.return_value = None
+
+    def patched_guard():
+        return mock_guard
+
+    def patched_client(**_kwargs):
+        return mock_gads
+
+    monkeypatch.setattr("src.api.routes.campaigns.CapabilityGuard", patched_guard)
+    monkeypatch.setattr("src.api.routes.campaigns.GoogleAdsClient", patched_client)
+    return mock_guard, mock_gads
+
+
+@pytest.fixture
+def campaign_app(mock_adapter, mock_guard_and_client):
     app = FastAPI()
     app.include_router(router)
     return app
