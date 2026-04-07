@@ -3,7 +3,10 @@ Daily research cycle — triggered by cron or systemd timer at 8am server time.
 Fetches campaign performance, runs adversarial validation loop,
 executes approved changes via MCP, writes wiki entries, fires webhooks.
 """
+import os
+import sys
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from src.db.postgres_adapter import PostgresAdapter
@@ -15,6 +18,59 @@ from src.services.webhook_service import WebhookService
 from src.services.audit_service import AuditService
 from src.agents.debate_state import Phase
 from src.config import get_settings
+
+
+LOCK_FILE = Path.home() / ".ads_agent_research.lock"
+
+
+def _acquire_lock(lock_path: Path) -> bool:
+    """
+    Prevent concurrent research cycles using an exclusive file lock.
+
+    On POSIX systems: uses fcntl.flock for atomic advisory locking.
+    On other platforms: uses a PID file with existence check.
+    Returns True if lock acquired, False if another cycle is already running.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Fast path: check if lock file with live PID already exists
+    if lock_path.exists():
+        try:
+            old_pid = int(lock_path.read_text().strip())
+        except (ValueError, OSError):
+            pass
+        else:
+            # Check if that process is still running
+            if _is_process_alive(old_pid):
+                return False
+
+    try:
+        lock_path.write_text(str(os.getpid()))
+        return True
+    except OSError:
+        return False
+
+
+def _is_process_alive(pid: int) -> bool:
+    """Check whether a process with the given PID is currently running."""
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            return ctypes.windll.kernel32.OpenProcess(0, False, pid) != 0
+        except Exception:
+            return False
+    else:
+        # POSIX: /proc/{pid} exists means process is alive
+        return os.path.exists(f"/proc/{pid}")
+
+
+def _release_lock(lock_path: Path) -> None:
+    """Remove the lock file if it was created by this process."""
+    try:
+        if lock_path.exists() and lock_path.read_text().strip() == str(os.getpid()):
+            lock_path.unlink()
+    except OSError:
+        pass
 
 
 def run_daily_research() -> None:
@@ -29,6 +85,12 @@ def run_daily_research() -> None:
     5. On max rounds without consensus: flag for manual review
     6. On any error: fire error webhook, continue to next campaign
     """
+    # Prevent concurrent runs: if another cycle is still running, exit early.
+    if not _acquire_lock(LOCK_FILE):
+        today = date.today().isoformat()
+        print(f"[Research Cycle {today}] ABORTED: another cycle is already running (lock held).")
+        return
+
     # Construct services in order; webhook_service must exist before db.connect
     # so the error handler can dispatch cycle_error if db connection fails.
     webhook_service = WebhookService()
@@ -50,76 +112,79 @@ def run_daily_research() -> None:
 
     print(f"[Research Cycle {today}] Processing {len(campaigns)} campaign(s)...")
 
-    for campaign in campaigns:
-        campaign_id_str = str(campaign["id"])
-        print(f"  Campaign {campaign['campaign_id']}: starting research cycle")
-        try:
-            # 1. Pull performance data via Google Ads client
-            gads_client = GoogleAdsClient(
-                customer_id=campaign["customer_id"],
-            )
-            performance_data = gads_client.get_performance_report(
-                customer_id=campaign["customer_id"],
-                campaign_id=campaign["campaign_id"],
-                start_date=date.today(),
-                end_date=date.today(),
-            )
+    try:
+        for campaign in campaigns:
+            campaign_id_str = str(campaign["id"])
+            print(f"  Campaign {campaign['campaign_id']}: starting research cycle")
+            try:
+                # 1. Pull performance data via Google Ads client
+                gads_client = GoogleAdsClient(
+                    customer_id=campaign["customer_id"],
+                )
+                performance_data = gads_client.get_performance_report(
+                    customer_id=campaign["customer_id"],
+                    campaign_id=campaign["campaign_id"],
+                    start_date=date.today(),
+                    end_date=date.today(),
+                )
 
-            # 2. Load wiki context for this campaign
-            wiki_results = db.search_wiki(f"campaign {campaign['campaign_id']}", limit=5)
-            wiki_context = [dict(r) for r in wiki_results]
+                # 2. Load wiki context for this campaign
+                wiki_results = db.search_wiki(f"campaign {campaign['campaign_id']}", limit=5)
+                wiki_context = [dict(r) for r in wiki_results]
 
-            # 3. Build the green/red/coordinator with real Google Ads client injected
-            green = _build_green_agent(gads_client, wiki_context)
-            red = _build_red_agent(gads_client, wiki_context)
-            coordinator = _build_coordinator_agent()
-            state_machine = _build_state_machine(db)
+                # 3. Build the green/red/coordinator with real Google Ads client injected
+                green = _build_green_agent(gads_client, wiki_context)
+                red = _build_red_agent(gads_client, wiki_context)
+                coordinator = _build_coordinator_agent()
+                state_machine = _build_state_machine(db)
 
-            validator = AdversarialValidator(
-                green=green,
-                red=red,
-                coordinator=coordinator,
-                state_machine=state_machine,
-            )
+                validator = AdversarialValidator(
+                    green=green,
+                    red=red,
+                    coordinator=coordinator,
+                    state_machine=state_machine,
+                )
 
-            # 4. Run adversarial validation
-            state = validator.run_cycle(
-                cycle_date=today,
-                campaign_id=campaign["id"],
-                campaign_data={
-                    "campaign": _strip_sensitive(campaign),
-                    "performance": performance_data,
-                },
-                wiki_context=wiki_context,
-            )
+                # 4. Run adversarial validation
+                state = validator.run_cycle(
+                    cycle_date=today,
+                    campaign_id=campaign["id"],
+                    campaign_data={
+                        "campaign": _strip_sensitive(campaign),
+                        "performance": performance_data,
+                    },
+                    wiki_context=wiki_context,
+                )
 
-            # 5. Handle outcome
-            if state is None:
-                print(f"    Validator returned no state, skipping")
-            elif state.consensus_reached:
-                print(f"    Consensus reached after {state.round_number} round(s)")
-                _execute_consensus(state, campaign, gads_client, guard, db, wiki_writer, audit_service, webhook_service, today)
-            elif state.phase == Phase.PENDING_MANUAL_REVIEW:
-                print(f"    Max rounds reached — flagged for manual review")
-                webhook_service.dispatch("manual_review_required", {
+                # 5. Handle outcome
+                if state is None:
+                    print(f"    Validator returned no state, skipping")
+                elif state.consensus_reached:
+                    print(f"    Consensus reached after {state.round_number} round(s)")
+                    _execute_consensus(state, campaign, gads_client, guard, db, wiki_writer, audit_service, webhook_service, today)
+                elif state.phase == Phase.PENDING_MANUAL_REVIEW:
+                    print(f"    Max rounds reached — flagged for manual review")
+                    webhook_service.dispatch("manual_review_required", {
+                        "campaign_id": campaign_id_str,
+                        "cycle_date": today,
+                        "round_number": state.round_number,
+                        "green_proposals": state.green_proposals,
+                        "red_objections": state.red_objections,
+                    })
+                else:
+                    print(f"    No consensus (phase={state.phase.value}), skipping")
+
+            except Exception as e:
+                print(f"    ERROR: {e}")
+                webhook_service.dispatch("cycle_error", {
                     "campaign_id": campaign_id_str,
                     "cycle_date": today,
-                    "round_number": state.round_number,
-                    "green_proposals": state.green_proposals,
-                    "red_objections": state.red_objections,
+                    "error": str(e),
                 })
-            else:
-                print(f"    No consensus (phase={state.phase.value}), skipping")
 
-        except Exception as e:
-            print(f"    ERROR: {e}")
-            webhook_service.dispatch("cycle_error", {
-                "campaign_id": campaign_id_str,
-                "cycle_date": today,
-                "error": str(e),
-            })
-
-    print(f"[Research Cycle {today}] Complete.")
+        print(f"[Research Cycle {today}] Complete.")
+    finally:
+        _release_lock(LOCK_FILE)
 
 
 def _execute_consensus(

@@ -19,6 +19,33 @@ def _mock_get_settings():
 class TestRunDailyResearch:
     """Test run_daily_research() orchestration."""
 
+    def test_concurrent_run_aborts_when_lock_held(self):
+        """When another cycle is already running, run_daily_research returns early without processing."""
+        from src.cron.daily_research import run_daily_research
+
+        import src.cron.daily_research as dr
+
+        # Track whether PostgresAdapter was called
+        adapter_called = False
+        original_adapter = dr.PostgresAdapter
+
+        def tracking_adapter(*args, **kwargs):
+            nonlocal adapter_called
+            adapter_called = True
+            return original_adapter(*args, **kwargs)
+
+        original_acquire = dr._acquire_lock
+        dr._acquire_lock = lambda lock_path: False
+        dr.PostgresAdapter = tracking_adapter
+
+        try:
+            run_daily_research()
+            # PostgresAdapter must not have been called since we aborted early
+            assert adapter_called is False, "PostgresAdapter was called despite lock not acquired"
+        finally:
+            dr._acquire_lock = original_acquire
+            dr.PostgresAdapter = original_adapter
+
     def test_processes_each_active_campaign(self):
         """run_daily_research calls the validation cycle for each campaign."""
         from src.cron.daily_research import run_daily_research
