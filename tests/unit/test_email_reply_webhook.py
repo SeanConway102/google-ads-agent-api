@@ -596,6 +596,45 @@ class TestEmailReplyWebhookHitlDisabled:
         mock_adapter.save_debate_state.assert_not_called()
 
 
+class TestEmailReplyInvalidPhase:
+    """Invalid phase strings in DB must not cause 500 errors."""
+
+    def test_invalid_phase_returns_404_not_500(self, mock_adapter, client):
+        """
+        If debate_row contains an invalid phase string (not a valid Phase enum),
+        Phase(...) raises ValueError. The endpoint must return 404, not 500.
+        Without the fix, ValueError propagates and FastAPI returns 500.
+        """
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["hitl_enabled"] = True
+
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "cycle_date": "2026-04-07",
+            "campaign_id": campaign_uuid,
+            "phase": "not_a_valid_phase",  # invalid
+            "round_number": 3,
+            "green_proposals": [],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        response = client.post(
+            "/email-replies",
+            json={
+                "email_from": "owner@example.com",
+                "subject": "Re: [AdsAgent] Action required",
+                "body": "yes",
+            },
+        )
+
+        # Must return 404 (no pending proposal), not 500 (server error)
+        assert response.status_code == 404
+
+
 class TestEmailReplyWebhookQuestion:
     """Owner asks a question → webhook fires question_asked event, returns 200."""
 

@@ -67,7 +67,19 @@ def handle_email_reply(body: EmailReplyPayload) -> EmailReplyResponse:
 
     # Find pending debate state
     debate_row = _adapter().get_latest_debate_state_any_cycle(campaign_row["id"])
-    if debate_row is None or Phase(debate_row.get("phase", "")) != Phase.PENDING_MANUAL_REVIEW:
+    if debate_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending proposal to act on for this campaign",
+        )
+    try:
+        phase = Phase(debate_row.get("phase", ""))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending proposal to act on for this campaign",
+        )
+    if phase != Phase.PENDING_MANUAL_REVIEW:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No pending proposal to act on for this campaign",
