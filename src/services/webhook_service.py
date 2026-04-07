@@ -204,6 +204,8 @@ async def dispatch_event(
             event_type=event_type,
             payload=payload,
             secret=wh.get("secret"),
+            db=adapter,
+            subscription_id=str(wh["id"]),
         )
         for wh in subscribed
     ]
