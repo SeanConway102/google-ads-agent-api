@@ -194,6 +194,52 @@ class TestCampaignsApproveExecution:
             # For now, this test FAILS because the current implementation returns "approved"
             # after silently skipping the blocked proposal
 
+    def test_unknown_proposal_type_does_not_return_approved(self, mock_adapter):
+        """
+        When a green_proposals item has an unrecognized ptype, the approve
+        endpoint must NOT return 200 with status="approved".
+
+        Same bug as email_replies.py: executed_proposals.append(ptype) is at the
+        if/elif indentation level, so it runs for every ptype even if no branch
+        matched. An unknown ptype silently passes through without guard.check()
+        or any gads_client call, yet the phase transitions to APPROVED.
+        """
+        campaign_id = uuid.uuid4()
+        mock_adapter.get_campaign.return_value = self._make_campaign_row()
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": uuid.uuid4(),
+            "campaign_id": campaign_id,
+            "phase": "pending_manual_review",
+            "round_number": 2,
+            "cycle_date": "2026-04-06",
+            "green_proposals": [
+                {"type": "unknown_proposal_type"},
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_guard = MagicMock()
+        mock_gads = MagicMock()
+
+        with patch("src.api.routes.campaigns.CapabilityGuard", return_value=mock_guard), \
+             patch("src.api.routes.campaigns.GoogleAdsClient", return_value=mock_gads):
+
+            app = self._make_app(mock_adapter)
+            client = TestClient(app, raise_server_exceptions=False)
+
+            response = client.post(
+                f"/campaigns/{campaign_id}/approve",
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert not (response.status_code == 200 and response.json().get("status") == "approved"), (
+                f"Got {response.status_code} with status={response.json().get('status')} — "
+                "proposal type 'unknown_proposal_type' was marked as executed without "
+                "any guard.check() or gads_client call. Unknown ptype must not result "
+                "in status='approved'."
+            )
+
 
 @pytest.fixture
 def mock_adapter(monkeypatch):

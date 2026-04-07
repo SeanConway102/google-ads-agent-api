@@ -108,27 +108,37 @@ def handle_email_reply(body: EmailReplyPayload) -> EmailReplyResponse:
                         ad_group_id=proposal.get("ad_group_id", ""),
                         keywords=proposal.get("keywords", []),
                     )
+                    executed_proposals.append(ptype)
                 elif ptype == "keyword_remove":
                     guard.check("google_ads.remove_keywords")
                     gads_client.remove_keywords(
                         customer_id=campaign_row["customer_id"],
                         keyword_resource_names=proposal.get("resource_names", []),
                     )
+                    executed_proposals.append(ptype)
                 elif ptype == "bid_update":
                     guard.check("google_ads.update_keyword_bids")
                     gads_client.update_keyword_bids(
                         customer_id=campaign_row["customer_id"],
                         updates=proposal.get("updates", []),
                     )
+                    executed_proposals.append(ptype)
                 elif ptype == "match_type_update":
                     guard.check("google_ads.update_keyword_match_types")
                     gads_client.update_keyword_match_types(
                         customer_id=campaign_row["customer_id"],
                         updates=proposal.get("updates", []),
                     )
-                executed_proposals.append(ptype)
+                    executed_proposals.append(ptype)
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"Unknown proposal type: {ptype!r}",
+                    )
             except CapabilityDenied:
                 blocked_proposals.append(ptype)
+            except HTTPException:
+                raise
             except Exception as exc:
                 execution_error = exc
                 break

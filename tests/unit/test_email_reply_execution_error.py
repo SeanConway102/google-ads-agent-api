@@ -226,6 +226,59 @@ class TestEmailReplyExecutionError:
             # Must not save APPROVED phase
             mock_adapter.save_debate_state.assert_not_called()
 
+    def test_unknown_proposal_type_does_not_return_approved(self, mock_adapter):
+        """
+        When a proposal has an unrecognized ptype (not keyword_add, keyword_remove,
+        bid_update, or match_type_update), the route must NOT return 200 with
+        status="approved". The proposal was never executed, yet the current code
+        falls through the if/elif chain and marks it as executed anyway.
+
+        This is the same bug as campaigns.py: executed_proposals.append(ptype) is
+        at the if/elif indentation level, so it runs for every ptype regardless of
+        whether a branch matched. An unknown ptype silently passes through without
+        guard.check() being called, without any Google Ads operation, yet the
+        phase transitions to APPROVED.
+        """
+        campaign_id = uuid.uuid4()
+        campaign_row = self._make_campaign_row()
+        debate_row = {
+            "id": uuid.uuid4(),
+            "campaign_id": campaign_id,
+            "phase": "pending_manual_review",
+            "round_number": 2,
+            "cycle_date": "2026-04-06",
+            "green_proposals": [
+                {"type": "unknown_proposal_type", "some_field": "value"},
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+
+        mock_guard = MagicMock()
+        mock_gads = MagicMock()
+
+        with patch("src.api.routes.email_replies.CapabilityGuard", return_value=mock_guard), \
+             patch("src.api.routes.email_replies.GoogleAdsClient", return_value=mock_gads):
+
+            app = self._make_app(mock_adapter)
+            client = TestClient(app, raise_server_exceptions=False)
+
+            response = client.post(
+                "/email-replies",
+                json={"email_from": "owner@example.com", "body": "yes"},
+            )
+
+            # Must NOT return 200 with status="approved" for an unknown proposal type.
+            # Either: (a) return 400 for unrecognized ptype, or (b) treat it as blocked.
+            assert not (response.status_code == 200 and response.json().get("status") == "approved"), (
+                f"Got {response.status_code} with status={response.json().get('status')} — "
+                "proposal type 'unknown_proposal_type' was marked as executed without "
+                "any guard.check() or gads_client call. An unrecognized ptype must not "
+                "result in status='approved'."
+            )
+
 
 @pytest.fixture
 def mock_adapter(monkeypatch):
