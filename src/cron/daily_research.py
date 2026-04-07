@@ -277,6 +277,19 @@ def _execute_allowed_actions(
                 )
                 print(f"    Executed: keyword_bid_update → {len(updated)} updated")
 
+            elif ptype == "bid_update":
+                # bid_update is what the coordinator/coordinator outputs (green team LLM naming)
+                guard.check("google_ads.update_keyword_bids")
+                updates = proposal.get("updates", [])
+                if not updates:
+                    print(f"    Skipped: bid_update with empty updates")
+                    continue
+                updated = gads_client.update_keyword_bids(
+                    customer_id=campaign["customer_id"],
+                    updates=updates,
+                )
+                print(f"    Executed: bid_update → {len(updated)} updated")
+
             elif ptype == "keyword_match_type_update":
                 guard.check("google_ads.update_keyword_match_types")
                 updates = proposal.get("updates", [])
@@ -288,6 +301,19 @@ def _execute_allowed_actions(
                     updates=updates,
                 )
                 print(f"    Executed: keyword_match_type_update → {len(updated)} updated")
+
+            elif ptype == "match_type_update":
+                # match_type_update is what the coordinator outputs (green team LLM naming)
+                guard.check("google_ads.update_keyword_match_types")
+                updates = proposal.get("updates", [])
+                if not updates:
+                    print(f"    Skipped: match_type_update with empty updates")
+                    continue
+                updated = gads_client.update_keyword_match_types(
+                    customer_id=campaign["customer_id"],
+                    updates=updates,
+                )
+                print(f"    Executed: match_type_update → {len(updated)} updated")
 
             # Blocked/unknown types: silently skipped (capability denied or unrecognised)
         except CapabilityDenied:
