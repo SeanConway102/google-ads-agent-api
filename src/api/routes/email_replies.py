@@ -59,6 +59,11 @@ def handle_email_reply(body: EmailReplyPayload) -> EmailReplyResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No campaign registered for email address: {body.email_from}",
         )
+    if not campaign_row.get("hitl_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HITL is not enabled for this campaign",
+        )
 
     # Find pending debate state
     debate_row = _adapter().get_latest_debate_state_any_cycle(campaign_row["id"])

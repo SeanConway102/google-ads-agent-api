@@ -69,6 +69,7 @@ def client(email_reply_app):
 def make_campaign_row(
     owner_email: str = "owner@example.com",
     campaign_id: str = "12345",
+    hitl_enabled: bool = True,
 ) -> dict:
     return {
         "id": uuid.uuid4(),
@@ -79,6 +80,7 @@ def make_campaign_row(
         "campaign_type": "search",
         "owner_tag": "marketing",
         "owner_email": owner_email,
+        "hitl_enabled": hitl_enabled,
         "created_at": datetime(2026, 4, 6, 10, 0, 0),
         "last_synced_at": datetime(2026, 4, 6, 8, 0, 0),
         "last_reviewed_at": datetime(2026, 4, 5, 8, 0, 0),
@@ -519,6 +521,46 @@ class TestEmailReplyApproveExecutesAllProposalTypes:
         mock_gads.remove_keywords.assert_called_once()
         mock_gads.update_keyword_bids.assert_called_once()
         mock_gads.update_keyword_match_types.assert_called_once()
+
+
+class TestEmailReplyWebhookHitlDisabled:
+    """HITL must be enabled for email replies to modify debate state."""
+
+    def test_approve_returns_404_when_hitl_disabled(self, mock_adapter, client):
+        """
+        When the campaign has hitl_enabled=False, approve replies must be rejected.
+        This prevents bypassing HITL via the email-replies endpoint.
+        """
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["hitl_enabled"] = False
+
+        mock_adapter.get_campaign_by_owner_email.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "cycle_date": "2026-04-07",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [
+                {"type": "keyword_add", "ad_group_id": "ag_001", "keywords": ["shoes"]},
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        response = client.post(
+            "/email-replies",
+            json={
+                "email_from": "owner@example.com",
+                "subject": "Re: [AdsAgent] Action required",
+                "body": "yes",
+            },
+        )
+
+        assert response.status_code == 404
+        mock_adapter.save_debate_state.assert_not_called()
 
 
 class TestEmailReplyWebhookQuestion:
