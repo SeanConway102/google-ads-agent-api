@@ -129,7 +129,7 @@ def get_campaign_insights(
         last_synced_at=row.get("last_synced_at"),
         last_reviewed_at=row.get("last_reviewed_at"),
         phase=str(debate_row["phase"]) if debate_row else None,
-        round_number=int(debate_row["round_number"]) if debate_row else None,
+        round_number=int(debate_row["round_number"]) if debate_row and debate_row.get("round_number") is not None else None,
         green_proposals=debate_row["green_proposals"] if debate_row else None,
         red_objections=debate_row["red_objections"] if debate_row else None,
         coordinator_decision=debate_row.get("coordinator_decision") if debate_row else None,
