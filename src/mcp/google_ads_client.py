@@ -339,10 +339,9 @@ class GoogleAdsClient:
             client = self._get_client()
             service: CampaignServiceClient = client.get_service("CampaignService")
             resource_name = service.campaign_path(customer_id, campaign_id)
-            operation = client.resource_utils.create_update_operation(
-                "Campaign",
-                {"resource_name": resource_name, "manual_cpc": {"cpc_bid_micros": budget_amount_micros}},
-            )
+            operation = client.get_type("CampaignOperation")
+            operation.update.campaign.resource_name = resource_name
+            operation.update.campaign.manual_cpc.enhanced_cpc.cpc_bid_micros = budget_amount_micros
             response = service.mutate_campaigns(customer_id=customer_id, operations=[operation])
             return len(response.results) > 0
 
@@ -363,10 +362,9 @@ class GoogleAdsClient:
             client = self._get_client()
             service: CampaignServiceClient = client.get_service("CampaignService")
             resource_name = service.campaign_path(customer_id, campaign_id)
-            operation = client.resource_utils.create_update_operation(
-                "Campaign",
-                {"resource_name": resource_name, "status": status},
-            )
+            operation = client.get_type("CampaignOperation")
+            operation.update.campaign.resource_name = resource_name
+            operation.update.campaign.status = status
             response = service.mutate_campaigns(customer_id=customer_id, operations=[operation])
             return len(response.results) > 0
 
