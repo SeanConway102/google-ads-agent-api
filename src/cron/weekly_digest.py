@@ -1,7 +1,7 @@
 """
 Weekly digest cron — sends performance summary emails to HITL-enabled campaign owners.
 
-Triggered by HITL_WEEKLY_CRON (default: Monday 9am UTC).
+Triggered by HITL_WEEKLY_CRON (default: every 5 minutes).
 For each campaign with hitl_enabled=true and owner_email set:
   1. Fetches latest performance metrics from campaign insights
   2. Counts pending/approved/rejected hitl_proposals

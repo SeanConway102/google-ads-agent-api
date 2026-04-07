@@ -182,7 +182,7 @@ Every Monday at 9am UTC, a digest email is sent to owners of HITL-enabled campai
 - Week's impressions, clicks, spend, and CTR
 - Count of pending/approved/rejected proposals
 
-Set `HITL_WEEKLY_CRON=0 9 * * 1` (default) to configure the schedule.
+Set `HITL_WEEKLY_CRON=*/5 * * * *` (default: every 5 minutes) to configure the schedule.
 
 ## Testing
 

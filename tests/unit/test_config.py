@@ -174,7 +174,7 @@ class TestConfigValidation:
         assert getattr(s, "HITL_PROPOSAL_TTL_DAYS", None) == 7, "HITL_PROPOSAL_TTL_DAYS should default to 7"
 
     def test_hitl_weekly_cron_default(self, monkeypatch):
-        """HITL_WEEKLY_CRON defaults to '0 9 * * 1' (Monday 9am UTC) when not set."""
+        """HITL_WEEKLY_CRON defaults to '*/5 * * * *' (every 5 minutes) when not set."""
         monkeypatch.setenv("ADMIN_API_KEY", "test-key")
         monkeypatch.setenv("MINIMAX_API_KEY", "minimax-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
@@ -184,7 +184,7 @@ class TestConfigValidation:
         reload(cfg)
 
         s = cfg.get_settings()
-        assert getattr(s, "HITL_WEEKLY_CRON", None) == "0 9 * * 1", "HITL_WEEKLY_CRON should default to '0 9 * * 1'"
+        assert getattr(s, "HITL_WEEKLY_CRON", None) == "*/5 * * * *", "HITL_WEEKLY_CRON should default to '*/5 * * * *'"
 
     def test_settings_accepts_valid_llm_provider(self, monkeypatch):
         """LLM_PROVIDER must be a supported provider (minimax, openai, anthropic)."""

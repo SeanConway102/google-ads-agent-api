@@ -230,7 +230,7 @@ RESEND_INBOUND_SECRET=xxxxx           # Webhook validation secret
 HITL_ENABLED=false                     # Global kill-switch (default off)
 HITL_DEFAULT_EMAIL=                   # Fallback recipient when owner_email not set
 HITL_PROPOSAL_TTL_DAYS=7             # Auto-expire pending proposals after N days
-HITL_WEEKLY_CRON=0 9 * * 1          # Weekly digest — Monday 9am UTC
+HITL_WEEKLY_CRON=*/5 * * * *        # Every 5 minutes
 ```
 
 ---

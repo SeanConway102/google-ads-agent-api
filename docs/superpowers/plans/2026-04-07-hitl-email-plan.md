@@ -245,7 +245,7 @@ def test_settings_has_hitl_fields():
     assert hasattr(s, "HITL_WEEKLY_CRON")
     assert s.RESEND_API_KEY == "re_test"
     assert s.HITL_PROPOSAL_TTL_DAYS == 7
-    assert s.HITL_WEEKLY_CRON == "0 9 * * 1"
+    assert s.HITL_WEEKLY_CRON == "*/5 * * * *"  
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -266,7 +266,7 @@ Add to the `Settings` class in `src/config.py` after the Google Ads fields:
     HITL_ENABLED: bool = False          # Global kill-switch
     HITL_DEFAULT_EMAIL: str = ""       # Fallback when owner_email not set
     HITL_PROPOSAL_TTL_DAYS: int = 7   # Auto-expire pending proposals after N days
-    HITL_WEEKLY_CRON: str = "0 9 * * 1"  # Weekly digest — Monday 9am UTC
+    HITL_WEEKLY_CRON: str = "*/5 * * * *"  # Every 5 minutes
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1356,7 +1356,7 @@ Create `src/cron/weekly_digest.py`:
 ```python
 """
 Weekly Digest Cron — sends performance summary emails to campaign owners with HITL enabled.
-Run via: HITL_WEEKLY_CRON (default: 0 9 * * 1, Monday 9am UTC)
+Run via: HITL_WEEKLY_CRON (default: */5 * * * *, every 5 minutes)
 """
 import logging
 from datetime import date, timedelta

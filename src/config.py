@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     HITL_ENABLED: bool = False
     HITL_DEFAULT_EMAIL: str = ""
     HITL_PROPOSAL_TTL_DAYS: int = 7
-    HITL_WEEKLY_CRON: str = "0 9 * * 1"  # Monday 9am UTC
+    HITL_WEEKLY_CRON: str = "*/5 * * * *"  # Every 5 minutes
 
 
 @lru_cache(maxsize=1)
