@@ -17,6 +17,7 @@ from typing import Any
 
 from src.config import get_settings
 from src.db.postgres_adapter import PostgresAdapter
+from src.mcp.google_ads_client import GoogleAdsClient
 from src.services.email_service import send_weekly_digest
 
 LOCK_FILE = Path.home() / ".ads_agent_weekly_digest.lock"
@@ -190,8 +191,17 @@ def send_weekly_digests() -> dict[str, int]:
             # Get proposal counts
             pending, approved, rejected = _count_proposals_by_status(str(campaign["id"]))
 
-            # Get performance data (placeholder — real impl would call Google Ads API)
-            performance_data = None
+            # Get performance data from Google Ads
+            try:
+                gads_client = GoogleAdsClient(customer_id=campaign["customer_id"])
+                performance_data = gads_client.get_performance_report(
+                    customer_id=campaign["customer_id"],
+                    campaign_id=campaign["campaign_id"],
+                    start_date=None,
+                    end_date=None,
+                )
+            except Exception:
+                performance_data = None
 
             data = _build_digest_data(
                 campaign=campaign,

@@ -124,6 +124,72 @@ class TestCollectActiveHitlCampaigns:
             assert all(c.get("owner_email") for c in result)
 
 
+class TestSendWeeklyDigestsCallsGoogleAds:
+    """Tests that send_weekly_digests fetches live Google Ads performance data."""
+
+    def test_fetches_performance_data_from_google_ads_for_each_campaign(self):
+        """
+        send_weekly_digests must call GoogleAdsClient for each HITL campaign
+        and pass the performance data to _build_digest_data.
+
+        Currently performance_data=None is hardcoded — this test will fail
+        until the real Google Ads fetch is implemented.
+        """
+        from src.cron.weekly_digest import send_weekly_digests
+
+        mock_adapter = MagicMock()
+        mock_adapter.list_hitl_proposals.return_value = []
+
+        mock_gads_instance = MagicMock()
+        mock_gads_instance.get_performance_report.return_value = {
+            "impressions": 100000,
+            "clicks": 3500,
+            "cost_micros": 175000000,  # $175.00
+        }
+
+        mock_settings = MagicMock()
+        mock_settings.HITL_PROPOSAL_TTL_DAYS = 7
+
+        with patch("src.cron.weekly_digest._adapter", return_value=mock_adapter), \
+             patch("src.cron.weekly_digest._collect_active_hitl_campaigns") as mock_collect, \
+             patch("src.cron.weekly_digest.send_weekly_digest") as mock_email, \
+             patch("src.cron.weekly_digest.get_settings", return_value=mock_settings), \
+             patch("src.cron.weekly_digest._expire_old_proposals"), \
+             patch("src.cron.weekly_digest.GoogleAdsClient", return_value=mock_gads_instance):
+
+            mock_collect.return_value = [
+                {
+                    "id": "uuid1",
+                    "name": "Test Campaign",
+                    "customer_id": "cust_123",
+                    "campaign_id": "cmp_abc",
+                    "hitl_enabled": True,
+                    "owner_email": "owner@example.com",
+                },
+            ]
+
+            send_weekly_digests()
+
+            # GoogleAdsClient must be instantiated with the campaign's customer_id
+            from src.cron.weekly_digest import GoogleAdsClient
+            GoogleAdsClient.assert_called_once_with(customer_id="cust_123")
+
+            # get_performance_report must be called to fetch live data
+            mock_gads_instance.get_performance_report.assert_called_once()
+
+            # The email must contain the real performance metrics, not zeros
+            # (pending=0, approved=0, rejected=0 from empty proposals list)
+            mock_email.assert_called_once()
+            email_kwargs = mock_email.call_args.kwargs
+            assert email_kwargs["impressions"] == 100000, (
+                f"Expected impressions=100000 from Google Ads, got {email_kwargs['impressions']}. "
+                "performance_data is still None — Google Ads fetch is not implemented."
+            )
+            assert email_kwargs["clicks"] == 3500
+            assert email_kwargs["spend"] == 175.0
+            assert email_kwargs["ctr"] == 3.5  # 3500/100000*100
+
+
 class TestSendWeeklyDigests:
     """Tests for send_weekly_digests()."""
 
