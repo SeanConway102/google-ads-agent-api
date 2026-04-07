@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     RESEARCH_CRON: str = "0 8 * * *"  # 8am server time daily
     MAX_DEBATE_ROUNDS: int = 5
 
+    # ─── HITL / Email ────────────────────────────────────────────────────────
+    RESEND_API_KEY: str = ""
+    RESEND_INBOUND_SECRET: str = ""
+    HITL_ENABLED: bool = False
+    HITL_DEFAULT_EMAIL: str = ""
+    HITL_PROPOSAL_TTL_DAYS: int = 7
+    HITL_WEEKLY_CRON: str = "0 9 * * 1"  # Monday 9am UTC
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

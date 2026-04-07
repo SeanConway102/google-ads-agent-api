@@ -136,6 +136,56 @@ class TestConfigValidation:
             )
         assert "DB_PROVIDER" in str(exc_info.value)
 
+    def test_hitl_settings_fields(self, monkeypatch):
+        """Settings must have all HITL/Resend env var fields."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_test123")
+        monkeypatch.setenv("RESEND_INBOUND_SECRET", "inbound_secret")
+        monkeypatch.setenv("HITL_ENABLED", "true")
+        monkeypatch.setenv("HITL_DEFAULT_EMAIL", "owner@example.com")
+        monkeypatch.setenv("HITL_PROPOSAL_TTL_DAYS", "14")
+        monkeypatch.setenv("HITL_WEEKLY_CRON", "0 8 * * 3")
+        monkeypatch.setenv("ADMIN_API_KEY", "test-key")
+        monkeypatch.setenv("MINIMAX_API_KEY", "minimax-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+
+        import src.config as cfg
+        reload(cfg)
+
+        s = cfg.get_settings()
+        # Pydantic loads env vars as uppercase attributes (RESEND_API_KEY env var → RESEND_API_KEY attr)
+        assert getattr(s, "RESEND_API_KEY", None) == "re_test123", "Settings needs RESEND_API_KEY"
+        assert getattr(s, "RESEND_INBOUND_SECRET", None) == "inbound_secret", "Settings needs RESEND_INBOUND_SECRET"
+        assert getattr(s, "HITL_ENABLED", None) is True, "Settings needs HITL_ENABLED"
+        assert getattr(s, "HITL_DEFAULT_EMAIL", None) == "owner@example.com", "Settings needs HITL_DEFAULT_EMAIL"
+        assert getattr(s, "HITL_PROPOSAL_TTL_DAYS", None) == 14, "Settings needs HITL_PROPOSAL_TTL_DAYS"
+        assert getattr(s, "HITL_WEEKLY_CRON", None) == "0 8 * * 3", "Settings needs HITL_WEEKLY_CRON"
+
+    def test_hitl_ttl_days_default(self, monkeypatch):
+        """HITL_PROPOSAL_TTL_DAYS defaults to 7 when not set."""
+        monkeypatch.setenv("ADMIN_API_KEY", "test-key")
+        monkeypatch.setenv("MINIMAX_API_KEY", "minimax-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.delenv("HITL_PROPOSAL_TTL_DAYS", raising=False)
+
+        import src.config as cfg
+        reload(cfg)
+
+        s = cfg.get_settings()
+        assert getattr(s, "HITL_PROPOSAL_TTL_DAYS", None) == 7, "HITL_PROPOSAL_TTL_DAYS should default to 7"
+
+    def test_hitl_weekly_cron_default(self, monkeypatch):
+        """HITL_WEEKLY_CRON defaults to '0 9 * * 1' (Monday 9am UTC) when not set."""
+        monkeypatch.setenv("ADMIN_API_KEY", "test-key")
+        monkeypatch.setenv("MINIMAX_API_KEY", "minimax-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.delenv("HITL_WEEKLY_CRON", raising=False)
+
+        import src.config as cfg
+        reload(cfg)
+
+        s = cfg.get_settings()
+        assert getattr(s, "HITL_WEEKLY_CRON", None) == "0 9 * * 1", "HITL_WEEKLY_CRON should default to '0 9 * * 1'"
+
     def test_settings_accepts_valid_llm_provider(self, monkeypatch):
         """LLM_PROVIDER must be a supported provider (minimax, openai, anthropic)."""
         monkeypatch.setenv("ADMIN_API_KEY", "test-key")
