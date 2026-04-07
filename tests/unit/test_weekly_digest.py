@@ -67,6 +67,42 @@ class TestBuildDigestData:
         assert result["ctr"] == 0.0
 
 
+class TestCountProposalsByStatus:
+    """Tests for _count_proposals_by_status()."""
+
+    def test_returns_correct_counts_for_each_status(self):
+        """Returns (pending, approved, rejected) counts from hitl_proposals."""
+        mock_adapter = MagicMock()
+        mock_adapter.list_hitl_proposals.return_value = [
+            {"id": "p1", "status": "pending"},
+            {"id": "p2", "status": "pending"},
+            {"id": "p3", "status": "approved"},
+            {"id": "p4", "status": "rejected"},
+            {"id": "p5", "status": "expired"},
+        ]
+
+        with patch("src.cron.weekly_digest._adapter", return_value=mock_adapter):
+            import src.cron.weekly_digest as wd
+            pending, approved, rejected = wd._count_proposals_by_status("camp_123")
+
+        assert pending == 2, f"Expected 2 pending, got {pending}"
+        assert approved == 1, f"Expected 1 approved, got {approved}"
+        assert rejected == 1, f"Expected 1 rejected, got {rejected}"
+
+    def test_returns_zeros_when_no_proposals(self):
+        """Returns (0, 0, 0) when campaign has no hitl_proposals."""
+        mock_adapter = MagicMock()
+        mock_adapter.list_hitl_proposals.return_value = []
+
+        with patch("src.cron.weekly_digest._adapter", return_value=mock_adapter):
+            import src.cron.weekly_digest as wd
+            pending, approved, rejected = wd._count_proposals_by_status("camp_empty")
+
+        assert pending == 0
+        assert approved == 0
+        assert rejected == 0
+
+
 class TestCollectActiveHitlCampaigns:
     """Tests for _collect_active_hitl_campaigns()."""
 
