@@ -232,6 +232,24 @@ def approve_campaign_action(
                     ad_group_id=proposal.get("ad_group_id", ""),
                     keywords=proposal.get("keywords", []),
                 )
+            elif ptype == "keyword_remove":
+                guard.check("google_ads.remove_keywords")
+                gads_client.remove_keywords(
+                    customer_id=row["customer_id"],
+                    keyword_resource_names=proposal.get("resource_names", []),
+                )
+            elif ptype == "bid_update":
+                guard.check("google_ads.update_keyword_bids")
+                gads_client.update_keyword_bids(
+                    customer_id=row["customer_id"],
+                    updates=proposal.get("updates", []),
+                )
+            elif ptype == "match_type_update":
+                guard.check("google_ads.update_keyword_match_types")
+                gads_client.update_keyword_match_types(
+                    customer_id=row["customer_id"],
+                    updates=proposal.get("updates", []),
+                )
         except CapabilityDenied:
             pass  # blocked by capability guard — skip
 

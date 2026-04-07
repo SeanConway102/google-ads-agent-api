@@ -178,6 +178,122 @@ class TestApproveCampaignAction:
             campaigns_module.CapabilityGuard = original
 
 
+class TestApproveActionProposalTypes:
+    """approve_campaign_action must execute all green_proposal types, not just keyword_add."""
+
+    def test_approve_executes_keyword_remove_proposals(self, mock_adapter, client):
+        """keyword_remove proposals must call gads_client.remove_keywords."""
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["customer_id"] = "cust_001"
+        debate_row = {
+            "id": 1,
+            "cycle_date": "2026-04-06",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [
+                {"type": "keyword_remove", "resource_names": ["customers/cust/keywords/kw1"]},
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_adapter.get_campaign.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
+
+        # Mock GoogleAdsClient
+        mock_gads = MagicMock()
+        mock_gads.remove_keywords.return_value = ["kw1"]
+        import src.api.routes.campaigns as campaigns_module
+        original = campaigns_module.GoogleAdsClient
+        campaigns_module.GoogleAdsClient = lambda **kw: mock_gads
+        try:
+            response = client.post(f"/campaigns/{campaign_uuid}/approve")
+            assert response.status_code == 200
+            mock_gads.remove_keywords.assert_called_once()
+            call_kwargs = mock_gads.remove_keywords.call_args
+            assert call_kwargs.kwargs.get("customer_id") == "cust_001"
+        finally:
+            campaigns_module.GoogleAdsClient = original
+
+    def test_approve_executes_bid_update_proposals(self, mock_adapter, client):
+        """bid_update proposals must call gads_client.update_keyword_bids."""
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["customer_id"] = "cust_001"
+        debate_row = {
+            "id": 1,
+            "cycle_date": "2026-04-06",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [
+                {"type": "bid_update", "updates": [{"resource_name": "kw1", "cpc_bid_micros": 150000}]},
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_adapter.get_campaign.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
+
+        mock_gads = MagicMock()
+        mock_gads.update_keyword_bids.return_value = ["kw1"]
+        import src.api.routes.campaigns as campaigns_module
+        original = campaigns_module.GoogleAdsClient
+        campaigns_module.GoogleAdsClient = lambda **kw: mock_gads
+        try:
+            response = client.post(f"/campaigns/{campaign_uuid}/approve")
+            assert response.status_code == 200
+            mock_gads.update_keyword_bids.assert_called_once()
+            call_kwargs = mock_gads.update_keyword_bids.call_args
+            assert call_kwargs.kwargs.get("customer_id") == "cust_001"
+        finally:
+            campaigns_module.GoogleAdsClient = original
+
+    def test_approve_executes_match_type_update_proposals(self, mock_adapter, client):
+        """match_type_update proposals must call gads_client.update_keyword_match_types."""
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+        campaign_row["customer_id"] = "cust_001"
+        debate_row = {
+            "id": 1,
+            "cycle_date": "2026-04-06",
+            "campaign_id": campaign_uuid,
+            "phase": "pending_manual_review",
+            "round_number": 3,
+            "green_proposals": [
+                {"type": "match_type_update", "updates": [{"resource_name": "kw1", "match_type": "PHRASE"}]},
+            ],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        mock_adapter.get_campaign.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = debate_row
+        mock_adapter.save_debate_state.return_value = {**debate_row, "phase": "approved"}
+
+        mock_gads = MagicMock()
+        mock_gads.update_keyword_match_types.return_value = ["kw1"]
+        import src.api.routes.campaigns as campaigns_module
+        original = campaigns_module.GoogleAdsClient
+        campaigns_module.GoogleAdsClient = lambda **kw: mock_gads
+        try:
+            response = client.post(f"/campaigns/{campaign_uuid}/approve")
+            assert response.status_code == 200
+            mock_gads.update_keyword_match_types.assert_called_once()
+            call_kwargs = mock_gads.update_keyword_match_types.call_args
+            assert call_kwargs.kwargs.get("customer_id") == "cust_001"
+        finally:
+            campaigns_module.GoogleAdsClient = original
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # RED: Failing tests for CM-007 — POST /campaigns/{uuid}/override
 # ──────────────────────────────────────────────────────────────────────────────
