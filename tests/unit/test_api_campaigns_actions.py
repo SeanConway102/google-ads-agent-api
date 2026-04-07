@@ -108,6 +108,30 @@ class TestApproveCampaignAction:
         assert response.status_code == 404
         assert "pending" in response.json()["detail"].lower() or "no action" in response.json()["detail"].lower()
 
+    def test_approve_returns_404_when_phase_invalid(self, mock_adapter, client):
+        """
+        If the debate_row phase is an invalid Phase enum string, must return 404
+        (not 500). Without the fix, Phase(...) raises ValueError → FastAPI 500.
+        """
+        campaign_uuid = uuid.uuid4()
+        campaign_row = make_campaign_row()
+        campaign_row["id"] = campaign_uuid
+
+        mock_adapter.get_campaign.return_value = campaign_row
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "campaign_id": campaign_uuid,
+            "phase": "not_a_real_phase",  # invalid
+            "round_number": 1,
+            "green_proposals": [],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        response = client.post(f"/campaigns/{campaign_uuid}/approve")
+
+        assert response.status_code == 404
+
     def test_approve_returns_approved_status_and_campaign_id(self, mock_adapter, client):
         """Returns {status: approved, campaign_id: ...} on success."""
         campaign_uuid = uuid.uuid4()

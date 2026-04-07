@@ -208,7 +208,19 @@ def approve_campaign_action(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
 
     debate_row = _adapter().get_latest_debate_state_any_cycle(campaign_id)
-    if debate_row is None or Phase(debate_row["phase"]) != Phase.PENDING_MANUAL_REVIEW:
+    if debate_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending action to approve for this campaign",
+        )
+    try:
+        phase = Phase(debate_row["phase"])
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending action to approve for this campaign",
+        )
+    if phase != Phase.PENDING_MANUAL_REVIEW:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No pending action to approve for this campaign",
