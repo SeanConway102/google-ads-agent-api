@@ -157,3 +157,31 @@ class TestHandleInboundReplyQuestion:
 
         # No proposal created for invalid phase
         mock_adapter.create_hitl_proposal.assert_not_called()
+
+    def test_no_debate_state_returns_gracefully(self):
+        """
+        When get_latest_debate_state_any_cycle returns None (no debate has run
+        for this campaign), the function must return gracefully without raising.
+        This covers the early-return guard at line 62-63.
+        """
+        mock_adapter = MagicMock()
+        mock_adapter.get_campaign_by_owner_email.return_value = {
+            "id": uuid.uuid4(),
+            "campaign_id": "cmp_001",
+            "customer_id": "cust_001",
+            "name": "Test Campaign",
+            "owner_email": "owner@example.com",
+            "hitl_enabled": True,
+        }
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = None  # no debate ever run
+
+        with patch("src.services.reply_handler.PostgresAdapter", return_value=mock_adapter):
+            # Must not raise — should return gracefully
+            handle_inbound_reply(
+                from_email="owner@example.com",
+                to_email="reply@adsagent.ai",
+                subject="Re: [AdsAgent] Action required",
+                body="yes",
+            )
+
+        mock_adapter.create_hitl_proposal.assert_not_called()
