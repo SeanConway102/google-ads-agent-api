@@ -3,10 +3,11 @@ Weekly digest cron — sends performance summary emails to HITL-enabled campaign
 
 Triggered by HITL_WEEKLY_CRON (default: every 5 minutes).
 For each campaign with hitl_enabled=true and owner_email set:
-  1. Fetches latest performance metrics from campaign insights
+  1. Expires stale pending HITL proposals
   2. Counts pending/approved/rejected hitl_proposals
   3. Sends weekly digest email via Resend
 """
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from src.config import get_settings
@@ -72,12 +73,52 @@ def _count_proposals_by_status(campaign_id: str) -> tuple[int, int, int]:
     return pending, approved, rejected
 
 
+def _expire_old_proposals(ttl_days: int) -> dict[str, int]:
+    """
+    Mark pending HITL proposals older than ttl_days as expired.
+
+    Returns {"expired": N} with the count of proposals expired.
+    """
+    adapter = _adapter()
+    campaigns = adapter.list_campaigns()
+    expired = 0
+
+    for campaign in campaigns:
+        proposals = adapter.list_hitl_proposals(str(campaign["id"]))
+        cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)
+        for proposal in proposals:
+            if proposal.get("status") != "pending":
+                continue
+            created_at_str = proposal.get("created_at")
+            if not created_at_str:
+                continue
+            # Handle both aware (with timezone) and naive (no timezone) datetimes
+            try:
+                created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+            except ValueError:
+                created_at = datetime.fromisoformat(created_at_str)
+            if not created_at.tzinfo:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if created_at < cutoff:
+                adapter.update_hitl_proposal_status(str(proposal["id"]), "expired")
+                expired += 1
+
+    return {"expired": expired}
+
+
 def send_weekly_digests() -> dict[str, int]:
     """
     Send weekly digest emails to all HITL-enabled campaign owners.
+    Also expires stale pending proposals older than HITL_PROPOSAL_TTL_DAYS.
 
     Returns {"sent": N, "failed": M} with counts of successful and failed sends.
     """
+    settings = get_settings()
+    ttl_days = settings.HITL_PROPOSAL_TTL_DAYS
+
+    # Expire old pending proposals before sending digests
+    _expire_old_proposals(ttl_days=ttl_days)
+
     campaigns = _collect_active_hitl_campaigns()
     sent = 0
     failed = 0
@@ -90,16 +131,8 @@ def send_weekly_digests() -> dict[str, int]:
         # Get proposal counts
         pending, approved, rejected = _count_proposals_by_status(str(campaign["id"]))
 
-        # Get performance data from campaign insights (synchronous snapshot)
-        try:
-            insights = _adapter().get_campaign(campaign["id"])
-            performance_data = {
-                "impressions": 0,  # placeholder — real impl would call Google Ads API
-                "clicks": 0,
-                "cost_micros": 0,
-            }
-        except Exception:
-            performance_data = None
+        # Get performance data (placeholder — real impl would call Google Ads API)
+        performance_data = None
 
         data = _build_digest_data(
             campaign=campaign,

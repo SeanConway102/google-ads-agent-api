@@ -98,9 +98,13 @@ class TestSendWeeklyDigests:
             [],  # Campaign 1: no pending
             [{"id": "p1", "status": "pending"}],  # Campaign 2: 1 pending
         ]
+        mock_settings = MagicMock()
+        mock_settings.HITL_PROPOSAL_TTL_DAYS = 7
         with patch("src.cron.weekly_digest._adapter", return_value=mock_adapter), \
              patch("src.cron.weekly_digest._collect_active_hitl_campaigns") as mock_collect, \
-             patch("src.cron.weekly_digest.send_weekly_digest") as mock_email:
+             patch("src.cron.weekly_digest.send_weekly_digest") as mock_email, \
+             patch("src.cron.weekly_digest.get_settings", return_value=mock_settings), \
+             patch("src.cron.weekly_digest._expire_old_proposals") as mock_expire:
 
             mock_collect.return_value = [
                 {"id": "uuid1", "name": "Campaign 1", "customer_id": "cust1", "hitl_enabled": True, "owner_email": "a@b.com"},
@@ -129,9 +133,13 @@ class TestSendWeeklyDigests:
         """send_weekly_digests increments failed counter when email sending fails."""
         mock_adapter = MagicMock()
         mock_adapter.list_hitl_proposals.return_value = []
+        mock_settings = MagicMock()
+        mock_settings.HITL_PROPOSAL_TTL_DAYS = 7
         with patch("src.cron.weekly_digest._adapter", return_value=mock_adapter), \
              patch("src.cron.weekly_digest._collect_active_hitl_campaigns") as mock_collect, \
-             patch("src.cron.weekly_digest.send_weekly_digest") as mock_email:
+             patch("src.cron.weekly_digest.send_weekly_digest") as mock_email, \
+             patch("src.cron.weekly_digest.get_settings", return_value=mock_settings), \
+             patch("src.cron.weekly_digest._expire_old_proposals") as mock_expire:
 
             mock_collect.return_value = [
                 {"id": "uuid1", "name": "Failing Campaign", "hitl_enabled": True, "owner_email": "a@b.com"},
