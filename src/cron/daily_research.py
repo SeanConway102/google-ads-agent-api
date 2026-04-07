@@ -107,6 +107,12 @@ def _send_hitl_emails(
         except Exception as exc:
             # Email failure should not abort the research cycle
             print(f"    Warning: failed to send HITL email: {exc}")
+            webhook_service.dispatch("hitl_email_failed", {
+                "campaign_id": campaign.get("campaign_id", campaign.get("id")),
+                "owner_email": owner_email,
+                "proposal": proposal,
+                "error": str(exc),
+            })
 
 
 def run_daily_research(target_campaign_id: str | None = None) -> None:
