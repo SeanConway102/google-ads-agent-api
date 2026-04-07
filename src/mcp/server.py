@@ -160,6 +160,106 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["customer_id", "ad_group_id", "keywords"],
         },
     },
+    {
+        "name": "google_ads_remove_keywords",
+        "description": "Remove keywords from an ad group by their resource names. WARNING: Requires explicit capability allowance. Only use after Red team approves removal.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Google Ads customer ID",
+                },
+                "keyword_resource_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of keyword resource names (e.g. 'customers/123/adGroups/456/criteria/789')",
+                },
+            },
+            "required": ["customer_id", "keyword_resource_names"],
+        },
+    },
+    {
+        "name": "google_ads_update_keyword_bids",
+        "description": "Update CPC bids for existing keywords. WARNING: Requires explicit capability allowance. Only use after Green team proposes and Red team raises no objection.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Google Ads customer ID",
+                },
+                "updates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "resource_name": {
+                                "type": "string",
+                                "description": "Keyword resource name",
+                            },
+                            "cpc_bid_micros": {
+                                "type": "integer",
+                                "description": "New CPC bid in micros",
+                            },
+                        },
+                        "required": ["resource_name", "cpc_bid_micros"],
+                    },
+                },
+            },
+            "required": ["customer_id", "updates"],
+        },
+    },
+    {
+        "name": "google_ads_update_keyword_match_types",
+        "description": "Update match types for existing keywords. WARNING: Requires explicit capability allowance. Only use after Green team proposes and Red team raises no objection.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Google Ads customer ID",
+                },
+                "updates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "resource_name": {
+                                "type": "string",
+                                "description": "Keyword resource name",
+                            },
+                            "match_type": {
+                                "type": "string",
+                                "enum": ["EXACT", "PHRASE", "BROAD"],
+                                "description": "New match type",
+                            },
+                        },
+                        "required": ["resource_name", "match_type"],
+                    },
+                },
+            },
+            "required": ["customer_id", "updates"],
+        },
+    },
+    {
+        "name": "google_ads_get_keyword_performance",
+        "description": "Get keyword-level performance metrics (impressions, clicks, CTR, CPC, conversions) for a campaign.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Google Ads customer ID",
+                },
+                "campaign_id": {
+                    "type": "string",
+                    "description": "Campaign ID (numeric string)",
+                },
+            },
+            "required": ["customer_id", "campaign_id"],
+        },
+    },
 ]
 
 
@@ -285,6 +385,42 @@ def handle_add_keywords(args: dict) -> dict[str, Any]:
     return {"ad_group_id": ad_group_id, "keywords_added": len(resource_names), "resource_names": resource_names}
 
 
+def handle_remove_keywords(args: dict) -> dict[str, Any]:
+    customer_id: str = args["customer_id"]
+    keyword_resource_names: list[str] = args["keyword_resource_names"]
+    _validate_customer_id(customer_id)
+    client = _make_client()
+    resource_names = client.remove_keywords(customer_id, keyword_resource_names)
+    return {"keywords_removed": len(resource_names), "resource_names": resource_names}
+
+
+def handle_update_keyword_bids(args: dict) -> dict[str, Any]:
+    customer_id: str = args["customer_id"]
+    updates: list[dict] = args["updates"]
+    _validate_customer_id(customer_id)
+    client = _make_client()
+    resource_names = client.update_keyword_bids(customer_id, updates)
+    return {"keywords_updated": len(resource_names), "resource_names": resource_names}
+
+
+def handle_update_keyword_match_types(args: dict) -> dict[str, Any]:
+    customer_id: str = args["customer_id"]
+    updates: list[dict] = args["updates"]
+    _validate_customer_id(customer_id)
+    client = _make_client()
+    resource_names = client.update_keyword_match_types(customer_id, updates)
+    return {"keywords_updated": len(resource_names), "resource_names": resource_names}
+
+
+def handle_get_keyword_performance(args: dict) -> dict[str, Any]:
+    customer_id: str = args["customer_id"]
+    campaign_id: str = args["campaign_id"]
+    _validate_customer_id(customer_id)
+    client = _make_client()
+    results = client.get_keyword_performance(customer_id, campaign_id)
+    return {"campaign_id": campaign_id, "keywords": results, "total": len(results)}
+
+
 TOOL_HANDLERS: dict[str, callable] = {
     "google_ads_list_campaigns": handle_list_campaigns,
     "google_ads_get_campaign": handle_get_campaign,
@@ -292,6 +428,10 @@ TOOL_HANDLERS: dict[str, callable] = {
     "google_ads_update_campaign_budget": handle_update_campaign_budget,
     "google_ads_update_campaign_status": handle_update_campaign_status,
     "google_ads_add_keywords": handle_add_keywords,
+    "google_ads_remove_keywords": handle_remove_keywords,
+    "google_ads_update_keyword_bids": handle_update_keyword_bids,
+    "google_ads_update_keyword_match_types": handle_update_keyword_match_types,
+    "google_ads_get_keyword_performance": handle_get_keyword_performance,
 }
 
 
