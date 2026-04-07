@@ -3,7 +3,7 @@ RED: Failing tests for daily_research cron script.
 Tests the full daily research cycle orchestration.
 """
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from src.agents.debate_state import DebateState, Phase
