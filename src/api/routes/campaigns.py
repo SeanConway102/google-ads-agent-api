@@ -265,6 +265,24 @@ def override_campaign_action(
                 ad_group_id=body.ad_group_id or "",
                 keywords=body.keywords or [],
             )
+        elif body.action_type == "keyword_remove":
+            guard.check("google_ads.remove_keywords")
+            gads_client.remove_keywords(
+                customer_id=row["customer_id"],
+                keyword_resource_names=body.keywords or [],
+            )
+        elif body.action_type == "bid_update":
+            guard.check("google_ads.update_keyword_bids")
+            gads_client.update_keyword_bids(
+                customer_id=row["customer_id"],
+                updates=body.keywords or [],  # [{resource_name, cpc_bid_micros}]
+            )
+        elif body.action_type == "match_type_update":
+            guard.check("google_ads.update_keyword_match_types")
+            gads_client.update_keyword_match_types(
+                customer_id=row["customer_id"],
+                updates=body.keywords or [],  # [{resource_name, match_type}]
+            )
         else:
             guard.check(f"google_ads.{body.action_type}")
     except CapabilityDenied:

@@ -185,11 +185,11 @@ class TestApproveCampaignAction:
 class TestOverrideCampaignAction:
     """Tests for POST /campaigns/{uuid}/override."""
 
-    def test_override_bid_update_returns_403_via_real_guard(self, monkeypatch):
-        """Non-keyword_add action types fall through to guard.check and are denied by default."""
+    def test_override_blocked_action_returns_403_via_real_guard(self, monkeypatch):
+        """Actions blocked by the capability guard return 403 Forbidden."""
         # Uses the real CapabilityGuard so deny-by-default rules apply.
-        # google_ads.bid_update is not in ALLOWED_OPERATIONS and matches no allowlist
-        # pattern, so CapabilityDenied is raised naturally.
+        # google_ads.campaign_delete matches the deny pattern google_ads.delete_*
+        # so CapabilityDenied is raised and returns 403.
         mock = MagicMock()
         monkeypatch.setattr("src.api.routes.campaigns.PostgresAdapter", lambda: mock)
 
@@ -204,7 +204,7 @@ class TestOverrideCampaignAction:
 
         response = test_client.post(
             f"/campaigns/{campaign_uuid}/override",
-            json={"action_type": "bid_update", "bid_adjustment": 0.15},
+            json={"action_type": "campaign_delete"},
         )
 
         assert response.status_code == 403
