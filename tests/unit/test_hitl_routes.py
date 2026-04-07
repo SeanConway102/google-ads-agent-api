@@ -343,3 +343,39 @@ class TestDecideHitlProposal:
                 json={"decision": "approved"},
             )
             assert response.status_code == 401
+
+    def test_decide_returns_404_when_hitl_disabled(self):
+        """
+        When hitl_enabled=False on the campaign, decide must return 404.
+        No HITL proposals should be decided for non-HITL campaigns — the same
+        check that was added to email_replies.py in commit b659a8d must also
+        apply to the REST decide endpoint.
+        """
+        campaign_id = uuid.uuid4()
+        proposal_id = uuid.uuid4()
+
+        mock_adapter = MagicMock()
+        campaign_row = make_campaign_row(str(campaign_id))
+        campaign_row["hitl_enabled"] = False
+        mock_adapter.get_campaign.return_value = campaign_row
+        mock_adapter.get_hitl_proposal.return_value = make_proposal_row(
+            proposal_id=str(proposal_id),
+            campaign_id=str(campaign_id),
+            status="pending",
+        )
+        mock_adapter.update_hitl_proposal_status.return_value = {
+            "id": str(proposal_id),
+            "status": "approved",
+            "decided_at": datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+        }
+
+        client = TestClient(_make_app(mock_adapter), raise_server_exceptions=False)
+        response = client.post(
+            f"/campaigns/{campaign_id}/hitl/proposals/{proposal_id}/decide",
+            json={"decision": "approved"},
+        )
+
+        assert response.status_code == 404, (
+            f"Expected 404 when hitl_enabled=False, got {response.status_code}. "
+            "HITL decisions must be rejected for non-HITL campaigns."
+        )

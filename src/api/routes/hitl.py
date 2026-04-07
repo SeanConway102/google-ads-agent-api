@@ -45,10 +45,14 @@ def list_hitl_proposals(
 ) -> list[HitlProposalResponse]:
     """List HITL proposals for a campaign, optionally filtered by status."""
     adapter = _adapter()
-    # Verify campaign exists
     campaign = adapter.get_campaign(campaign_id)
     if campaign is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+    if not campaign.get("hitl_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HITL is not enabled for this campaign",
+        )
 
     rows = adapter.list_hitl_proposals(campaign_id, status=status_filter)
     return [_proposal_to_response(row) for row in rows]
@@ -64,6 +68,11 @@ def get_hitl_proposal(
     campaign = adapter.get_campaign(campaign_id)
     if campaign is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+    if not campaign.get("hitl_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HITL is not enabled for this campaign",
+        )
 
     row = adapter.get_hitl_proposal(proposal_id)
     if row is None:
@@ -88,6 +97,11 @@ def decide_hitl_proposal(
     campaign = adapter.get_campaign(campaign_id)
     if campaign is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+    if not campaign.get("hitl_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HITL is not enabled for this campaign",
+        )
 
     row = adapter.get_hitl_proposal(proposal_id)
     if row is None:
