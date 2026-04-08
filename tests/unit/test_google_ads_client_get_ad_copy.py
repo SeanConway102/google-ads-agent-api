@@ -182,3 +182,15 @@ class TestGetKeywordPerformance:
         )
 
         mock_guard.check.assert_called_with("google_ads.get_keyword_performance")
+
+    def test_get_keyword_performance_rejects_non_numeric_campaign_id(self):
+        """
+        get_keyword_performance should raise GoogleAdsClientError for non-numeric campaign_id.
+        """
+        client = GoogleAdsClient(customer_id="1234567890")
+
+        with pytest.raises(GoogleAdsClientError, match="Invalid campaign_id"):
+            client.get_keyword_performance(
+                customer_id="1234567890",
+                campaign_id="abc",
+            )
