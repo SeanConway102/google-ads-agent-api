@@ -200,13 +200,26 @@ class GoogleAdsClient:
         Requires: google_ads.get_campaign
         """
         def _call() -> Campaign:
-            from google.ads.googleads.v17.services.services.campaign_service import CampaignServiceClient
-            from google.ads.googleads.v17.services.types.campaign_service import GetCampaignRequest
+            from google.ads.googleads.v17.services.services.google_ads_service import GoogleAdsServiceClient
+            from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
             client = self._get_client()
-            service: CampaignServiceClient = client.get_service("CampaignService")
-            request = GetCampaignRequest(customer_id=customer_id, campaign_id=campaign_id)
-            response = service.get_campaign(request=request)
-            campaign = response.campaign
+            service: GoogleAdsServiceClient = client.get_service("GoogleAdsService")
+            query = f"""
+                SELECT
+                    campaign.id,
+                    campaign.name,
+                    campaign.status,
+                    campaign.advertising_channel_type,
+                    campaign.manual_cpc.enhanced_cpc.cpc_bid_micros,
+                    campaign.start_date,
+                    campaign.end_date
+                FROM campaign
+                WHERE campaign.id = '{campaign_id}'
+            """
+            request = SearchGoogleAdsRequest(customer_id=customer_id, query=query)
+            response = service.search(request=request)
+            row = next(iter(response))
+            campaign = row.campaign
             return Campaign(
                 id=str(campaign.id),
                 name=campaign.name,

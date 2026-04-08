@@ -206,3 +206,88 @@ class TestListCampaigns:
                 mock_guard.check.return_value = None
                 with pytest.raises(GoogleAdsClientError, match="list_campaigns failed"):
                     client.list_campaigns(customer_id="1234567890")
+
+
+class TestGetCampaign:
+    """get_campaign fetches a single campaign by ID via GoogleAdsService.search."""
+
+    def test_get_campaign_returns_campaign_object(self):
+        """
+        get_campaign should return a Campaign object with correct field values.
+        """
+        client = GoogleAdsClient(customer_id="1234567890")
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 111
+        mock_campaign.name = "Summer Sale"
+        mock_campaign.status = "ENABLED"
+        mock_campaign.advertising_channel_type = "SEARCH"
+        mock_campaign.manual_cpc = None
+
+        mock_row = MagicMock()
+        mock_row.campaign = mock_campaign
+
+        mock_response = MagicMock()
+        mock_response.__iter__ = MagicMock(return_value=iter([mock_row]))
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = mock_response
+
+        mock_google_client = MagicMock()
+        mock_google_client.get_service.return_value = mock_service
+
+        with patch.object(client, "_get_client", return_value=mock_google_client):
+            with patch.object(client, "_guard") as mock_guard:
+                mock_guard.check.return_value = None
+                result = client.get_campaign(customer_id="1234567890", campaign_id="111")
+
+        assert result.id == "111"
+        assert result.name == "Summer Sale"
+        assert result.status == "ENABLED"
+        assert result.campaign_type == "SEARCH"
+        assert result.customer_id == "1234567890"
+        assert result.budget_amount_micros == 0
+
+    def test_get_campaign_guard_check_called(self):
+        """
+        get_campaign should call guard.check with google_ads.get_campaign.
+        """
+        client = GoogleAdsClient(customer_id="1234567890")
+
+        mock_row = MagicMock()
+        mock_row.campaign.name = "Test"
+
+        mock_response = MagicMock()
+        mock_response.__iter__ = MagicMock(return_value=iter([mock_row]))
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = mock_response
+
+        mock_google_client = MagicMock()
+        mock_google_client.get_service.return_value = mock_service
+
+        with patch.object(client, "_get_client", return_value=mock_google_client):
+            with patch.object(client, "_guard") as mock_guard:
+                mock_guard.check.return_value = None
+                client.get_campaign(customer_id="1234567890", campaign_id="111")
+
+        mock_guard.check.assert_called_with("google_ads.get_campaign")
+
+    def test_get_campaign_wraps_errors_in_google_ads_client_error(self):
+        """
+        Errors from the Google Ads client should be wrapped in GoogleAdsClientError.
+        """
+        client = GoogleAdsClient(customer_id="1234567890")
+
+        mock_service = MagicMock()
+        mock_service.search.side_effect = Exception("ads API error")
+
+        mock_google_client = MagicMock()
+        mock_google_client.get_service.return_value = mock_service
+
+        with patch.object(client, "_get_client", return_value=mock_google_client):
+            with patch.object(client, "_guard") as mock_guard:
+                mock_guard.check.return_value = None
+                with pytest.raises(GoogleAdsClientError, match="get_campaign failed"):
+                    client.get_campaign(customer_id="1234567890", campaign_id="111")
+
