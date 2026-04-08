@@ -199,6 +199,11 @@ class GoogleAdsClient:
         Get a single campaign by ID.
         Requires: google_ads.get_campaign
         """
+        if not campaign_id.isdigit():
+            raise GoogleAdsClientError(
+                f"Invalid campaign_id {campaign_id!r}: must be numeric"
+            )
+
         def _call() -> Campaign:
             from google.ads.googleads.v17.services.services.google_ads_service import GoogleAdsServiceClient
             from google.ads.googleads.v17.services.types.google_ads_service import SearchGoogleAdsRequest
@@ -218,7 +223,12 @@ class GoogleAdsClient:
             """
             request = SearchGoogleAdsRequest(customer_id=customer_id, query=query)
             response = service.search(request=request)
-            row = next(iter(response))
+            try:
+                row = next(iter(response))
+            except StopIteration:
+                raise GoogleAdsClientError(
+                    f"Campaign {campaign_id!r} not found for customer {customer_id!r}"
+                )
             campaign = row.campaign
             return Campaign(
                 id=str(campaign.id),

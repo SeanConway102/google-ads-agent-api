@@ -291,3 +291,34 @@ class TestGetCampaign:
                 with pytest.raises(GoogleAdsClientError, match="get_campaign failed"):
                     client.get_campaign(customer_id="1234567890", campaign_id="111")
 
+    def test_get_campaign_rejects_non_numeric_campaign_id(self):
+        """
+        get_campaign must reject non-numeric campaign_id to prevent GAQL injection.
+        """
+        client = GoogleAdsClient(customer_id="1234567890")
+
+        with pytest.raises(GoogleAdsClientError, match="must be numeric"):
+            client.get_campaign(customer_id="1234567890", campaign_id="abc")
+
+    def test_get_campaign_raises_not_found_when_empty_response(self):
+        """
+        When the campaign doesn't exist, get_campaign should raise GoogleAdsClientError
+        with a descriptive message.
+        """
+        client = GoogleAdsClient(customer_id="1234567890")
+
+        mock_response = MagicMock()
+        mock_response.__iter__ = MagicMock(return_value=iter([]))
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = mock_response
+
+        mock_google_client = MagicMock()
+        mock_google_client.get_service.return_value = mock_service
+
+        with patch.object(client, "_get_client", return_value=mock_google_client):
+            with patch.object(client, "_guard") as mock_guard:
+                mock_guard.check.return_value = None
+                with pytest.raises(GoogleAdsClientError, match="not found"):
+                    client.get_campaign(customer_id="1234567890", campaign_id="999")
+
