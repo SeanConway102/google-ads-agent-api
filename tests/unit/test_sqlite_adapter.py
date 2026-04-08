@@ -413,3 +413,173 @@ class TestSqliteAdapterFunctional:
         """get_hitl_proposal must return None when proposal does not exist."""
         result = adapter.get_hitl_proposal(uuid4())
         assert result is None
+
+    # ─── Missing coverage: close / context manager ──────────────────────────
+
+    def test_close_closes_connection(self):
+        """close() must close the underlying connection."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        a.close()
+        assert a._conn is None
+
+    def test_close_removes_temp_file(self):
+        """close() must remove the temp database file when _is_temp is True."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        import os
+        a = SqliteAdapter(":memory:")
+        path = a._database_path
+        assert os.path.exists(path), "temp file should exist before close"
+        a.close()
+        assert not os.path.exists(path), "temp file should be removed after close"
+
+    def test_context_manager_enter_returns_self(self):
+        """__enter__ must return self so 'with adapter:' works."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        result = a.__enter__()
+        assert result is a
+        a.close()
+
+    def test_context_manager_exit_calls_close(self):
+        """__exit__ must call close() so 'with adapter:' cleans up the temp file."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        import os
+        with SqliteAdapter(":memory:") as a:
+            path = a._database_path
+            assert os.path.exists(path)
+        assert not os.path.exists(path)
+
+    def test_execute_returning_empty_row_returns_empty_dict(self):
+        """execute_returning must return {} when the query returns no rows."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        result = a.execute_returning(
+            "SELECT * FROM campaigns WHERE id = ?",
+            ("nonexistent-id",)
+        )
+        assert result == {}
+
+    def test_search_wiki_empty_query_returns_empty_list(self):
+        """search_wiki with empty query must return empty list (no conditions)."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        a.create_wiki_entry({
+            "title": "Test Entry",
+            "slug": "test-entry-xyz",
+            "content": "Some content",
+            "sources": [],
+            "tags": [],
+        })
+        results = a.search_wiki("")
+        assert results == []
+
+    def test_get_latest_debate_state_any_cycle_returns_none_when_not_found(self):
+        """get_latest_debate_state_any_cycle must return None when no debate state exists."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        result = a.get_latest_debate_state_any_cycle(uuid4())
+        assert result is None
+
+    def test_query_audit_log_with_campaign_id_filter(self):
+        """query_audit_log with only campaign_id filter must return matching rows."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        cid = uuid4()
+        a.write_audit_log({
+            "cycle_date": "2026-04-08",
+            "campaign_id": cid,
+            "action_type": "test_filter",
+            "target": {},
+        })
+        results = a.query_audit_log(campaign_id=cid)
+        assert len(results) == 1
+        assert results[0]["campaign_id"] == str(cid)
+
+    def test_query_audit_log_with_multiple_filters(self):
+        """query_audit_log with all three filters must build correct AND WHERE clause."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        cid = uuid4()
+        a.write_audit_log({
+            "cycle_date": "2026-04-08",
+            "campaign_id": cid,
+            "action_type": "multi_filter_test",
+            "target": {},
+        })
+        results = a.query_audit_log(
+            campaign_id=cid,
+            action_type="multi_filter_test",
+            cycle_date="2026-04-08",
+        )
+        assert len(results) == 1
+
+    def test_query_audit_log_no_filters_uses_1_equals_1(self):
+        """query_audit_log with no filters must use '1=1' as fallback WHERE."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        cid = uuid4()
+        a.write_audit_log({
+            "cycle_date": "2026-04-08",
+            "campaign_id": cid,
+            "action_type": "no_filter_test",
+            "target": {},
+        })
+        # Should not raise even with no filters — uses 1=1 fallback
+        results = a.query_audit_log()
+        assert isinstance(results, list)
+
+    def test_list_hitl_proposals_filters_by_status(self):
+        """list_hitl_proposals with status filter must return only matching proposals."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        cid = uuid4()
+        a.create_hitl_proposal({
+            "campaign_id": cid,
+            "proposal_type": "bid_update",
+            "impact_summary": "Increase CPC",
+            "reasoning": "Top impression share",
+            "status": "pending",
+        })
+        a.create_hitl_proposal({
+            "campaign_id": cid,
+            "proposal_type": "keyword_add",
+            "impact_summary": "Add keywords",
+            "reasoning": "Good volume",
+            "status": "approved",
+        })
+        pending = a.list_hitl_proposals(cid, status="pending")
+        assert all(r["status"] == "pending" for r in pending)
+        assert len(pending) == 1
+
+    def test_get_campaign_by_owner_email_returns_campaign(self):
+        """get_campaign_by_owner_email must return the campaign with matching owner email."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        a.create_campaign({
+            "campaign_id": "cmp_email_001",
+            "customer_id": "cust_001",
+            "name": "Email Test Campaign",
+            "api_key_token": "token_email",
+            "owner_email": "test@example.com",
+        })
+        result = a.get_campaign_by_owner_email("test@example.com")
+        assert result is not None
+        assert result["owner_email"] == "test@example.com"
+
+    def test_get_campaign_by_owner_email_returns_none_when_not_found(self):
+        """get_campaign_by_owner_email must return None when no campaign has that email."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        result = a.get_campaign_by_owner_email("notfound@example.com")
+        assert result is None

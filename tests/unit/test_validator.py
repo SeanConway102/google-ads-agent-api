@@ -475,3 +475,374 @@ class TestAdversarialValidatorRunCycle:
             wiki_context=[],
         )
         assert eval_calls["count"] == 2  # Two evaluate calls (two rounds)
+
+    # ─── Missing coverage: isinstance checks and error paths ──────────────────
+
+    @pytest.mark.asyncio
+    async def test_advance_phase_returns_none_in_performance_pull_breaks(self):
+        """Line 61: when advance_phase returns None in PERFORMANCE_PULL, loop breaks."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.PERFORMANCE_PULL,
+        )
+        mock_state_machine.advance_phase.return_value = None  # returns None, not DebateState
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+        mock_coordinator = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        # Should return the initial PERFORMANCE_PULL state (loop broke early)
+        assert result.phase == Phase.PERFORMANCE_PULL
+        mock_green.propose.assert_not_called()  # never reached GREEN_PROPOSES
+
+    @pytest.mark.asyncio
+    async def test_record_proposals_returns_none_breaks_loop(self):
+        """Line 75: when record_proposals returns None, loop breaks before coordinator."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.GREEN_PROPOSES,
+            green_proposals=[],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=1,
+        )
+        # First advance_phase takes GREEN_PROPOSES → RED_CHALLENGES (line 77)
+        # Second advance_phase raises — but we break at line 75 first
+        mock_state_machine.advance_phase.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.RED_CHALLENGES,
+        )
+        mock_state_machine.record_proposals.return_value = None  # line 75: not DebateState
+
+        mock_green = MagicMock()
+        mock_green.propose = AsyncMock(return_value=[{"type": "keyword_add"}])
+        mock_red = MagicMock()
+        mock_coordinator = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert result.phase == Phase.GREEN_PROPOSES
+        mock_coordinator.evaluate.assert_not_called()  # never reached COORDINATOR_EVALUATES
+
+    @pytest.mark.asyncio
+    async def test_record_objections_returns_none_breaks_loop(self):
+        """Line 93: when record_objections returns None in RED_CHALLENGES, loop breaks."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.RED_CHALLENGES,
+            green_proposals=[{"type": "keyword_add"}],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=1,
+        )
+        mock_state_machine.record_objections.return_value = None  # line 93: not DebateState
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+        mock_red.challenge = AsyncMock(return_value=[])
+        mock_coordinator = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert result.phase == Phase.RED_CHALLENGES
+        mock_coordinator.evaluate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_second_advance_phase_returns_none_in_red_challenges_breaks(self):
+        """Line 97: second advance_phase returns None in RED_CHALLENGES, loop breaks."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.RED_CHALLENGES,
+            green_proposals=[{"type": "keyword_add"}],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=1,
+        )
+        mock_state_machine.record_objections.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.RED_CHALLENGES,
+            green_proposals=[{"type": "keyword_add"}],
+            red_objections=[],
+        )
+        # Second advance_phase (line 95) returns None → break at line 97
+        mock_state_machine.advance_phase.side_effect = [
+            None,  # line 95: second advance_phase call
+        ]
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+        mock_red.challenge = AsyncMock(return_value=[])
+        mock_coordinator = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert result.phase == Phase.RED_CHALLENGES
+
+    @pytest.mark.asyncio
+    async def test_coordinator_returns_none_breaks_loop(self):
+        """Line 110: when coordinator.evaluate returns None, loop breaks."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            green_proposals=[{"type": "keyword_add"}],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=1,
+        )
+        mock_state_machine.save.return_value = None
+        mock_coordinator = MagicMock()
+        mock_coordinator.evaluate = AsyncMock(return_value=None)  # line 110: not DebateState
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert result.phase == Phase.COORDINATOR_EVALUATES
+
+    @pytest.mark.asyncio
+    async def test_max_rounds_exceeded_returns_state(self):
+        """Line 124: when new_round >= max_rounds, run_cycle returns without coordinator."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            green_proposals=[{"type": "keyword_add"}],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=5,
+        )
+        mock_state_machine.save.return_value = None
+
+        # coordinator with max_rounds=3 — round 5 exceeds it
+        mock_coordinator = MagicMock()
+        mock_coordinator.max_rounds = 3
+        # Return GREEN_PROPOSES (not CONSENSUS_LOCKED or PENDING_MANUAL_REVIEW) — loop continues
+        mock_coordinator.evaluate = AsyncMock(
+            return_value=DebateState(
+                cycle_date="2026-04-06",
+                campaign_id=cid,
+                phase=Phase.GREEN_PROPOSES,
+                consensus_reached=False,
+                round_number=5,
+            )
+        )
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert result.phase == Phase.GREEN_PROPOSES
+        assert result.round_number == 5
+
+    @pytest.mark.asyncio
+    async def test_round_number_non_int_sets_new_round_to_zero(self):
+        """Lines 121-122: when round_number is non-int, exception caught and new_round=0."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            green_proposals=[],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=1,
+        )
+        mock_state_machine.save.return_value = None
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.max_rounds = 10
+        # Return GREEN_PROPOSES with round_number as string (invalid)
+        mock_coordinator.evaluate = AsyncMock(
+            return_value=DebateState(
+                cycle_date="2026-04-06",
+                campaign_id=cid,
+                phase=Phase.GREEN_PROPOSES,
+                consensus_reached=False,
+                round_number="not_an_int",  # string, not int — triggers exception
+            )
+        )
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        # Exception caught, new_round=0 < max_rounds=10, so loop continues
+        # But state is still GREEN_PROPOSES which gets handled in next iteration
+        # and eventually falls to else break
+        assert result.phase == Phase.GREEN_PROPOSES
+
+    @pytest.mark.asyncio
+    async def test_unhandled_idle_phase_breaks_at_else(self):
+        """Line 128: unhandled IDLE phase hits else branch and breaks."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.IDLE,
+            consensus_reached=False,
+            round_number=1,
+        )
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+        mock_coordinator = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert result.phase == Phase.IDLE
+        mock_green.propose.assert_not_called()
+        mock_red.challenge.assert_not_called()
+        mock_coordinator.evaluate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_max_rounds_taken_from_coordinator_int_attribute(self):
+        """Line 50: when coordinator.max_rounds is an int, that value is used."""
+        cid = uuid4()
+        mock_state_machine = MagicMock()
+        mock_state_machine.load_or_init.return_value = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            green_proposals=[],
+            red_objections=[],
+            consensus_reached=False,
+            round_number=3,
+        )
+        mock_state_machine.save.return_value = None
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.max_rounds = 3  # line 50 branch
+        # Return GREEN_PROPOSES at round 3 == max_rounds → line 124 triggers
+        mock_coordinator.evaluate = AsyncMock(
+            return_value=DebateState(
+                cycle_date="2026-04-06",
+                campaign_id=cid,
+                phase=Phase.GREEN_PROPOSES,
+                consensus_reached=False,
+                round_number=3,
+            )
+        )
+
+        mock_green = MagicMock()
+        mock_red = MagicMock()
+
+        validator = AdversarialValidator(
+            green=mock_green,
+            red=mock_red,
+            coordinator=mock_coordinator,
+            state_machine=mock_state_machine,
+        )
+        result = await validator.run_cycle(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            campaign_data={},
+            wiki_context=[],
+        )
+        assert result.phase == Phase.GREEN_PROPOSES
+        assert result.round_number == 3

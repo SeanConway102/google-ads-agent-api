@@ -163,6 +163,8 @@ class SqliteAdapter(DatabaseAdapter):
         Returns active (non-invalidated) entries ordered by creation date.
         """
         terms = " ".join(query.split()).split()
+        if not terms:
+            return []
         conditions = " AND ".join("(title LIKE ? OR content LIKE ?)" for _ in terms)
         params: list[Any] = sum([[f"%{t}%", f"%{t}%"] for t in terms], [])
         params.extend([limit])
