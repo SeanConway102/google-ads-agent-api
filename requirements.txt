@@ -7,6 +7,7 @@ httpx==0.28.1
 psycopg2-binary==2.9.11
 python-dotenv==1.1.1
 starlette==0.52.1
+resend==2.27.0
 
 # Google Ads API
 google-ads==25.1.0
