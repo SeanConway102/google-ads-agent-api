@@ -1,6 +1,7 @@
 """
 Tests for src/services/webhook_service.py — HMAC signing and delivery.
 """
+import asyncio
 import hashlib
 import hmac
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -261,4 +262,38 @@ class TestDeliverWebhook:
             from src.services.webhook_service import WebhookService
             service = WebhookService(db=None)  # force lazy init path
             # Must not raise — the error is caught and logged internally
+            service.dispatch(event_type="consensus_reached", payload={"test": "data"})
+
+    def test_dispatch_swallows_exception_from_asyncio_run_inside_loop(self):
+        """When asyncio.run(deliver_webhook) raises, error is caught and logged; other webhooks continue."""
+        mock_db = MagicMock()
+        mock_db.list_webhooks.return_value = [
+            {"id": "1", "url": "https://ok.example.com/hook",
+             "events": ["consensus_reached"], "secret": None},
+            {"id": "2", "url": "https://fail.example.com/hook",
+             "events": ["consensus_reached"], "secret": None},
+        ]
+        mock_adapter_cls = MagicMock(return_value=mock_db)
+
+        def mock_asyncio_run(coro):
+            # Run the coroutine via run_until_complete so deliver_webhook executes.
+            # We override the mock to raise for the "fail" webhook URL.
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(coro)
+                return result
+            finally:
+                loop.close()
+
+        async def mock_deliver_webhook(url, **kwargs):
+            if "fail" in url:
+                raise RuntimeError("delivery error for fail webhook")
+            return True
+
+        with patch("src.services.webhook_service.PostgresAdapter", mock_adapter_cls), \
+             patch("asyncio.run", mock_asyncio_run), \
+             patch("src.services.webhook_service.deliver_webhook", mock_deliver_webhook):
+            from src.services.webhook_service import WebhookService
+            service = WebhookService(db=mock_db)
+            # Must not raise — deliver_webhook exception is caught and logged
             service.dispatch(event_type="consensus_reached", payload={"test": "data"})
