@@ -434,6 +434,49 @@ class TestSqliteAdapterFunctional:
         a.close()
         assert not os.path.exists(path), "temp file should be removed after close"
 
+    def test_close_with_file_url_sets_is_temp_false(self):
+        """When database_url is not ':memory:', _is_temp is False and close() skips unlink."""
+        import os
+        import tempfile
+        from src.db.sqlite_adapter import SqliteAdapter
+
+        # Use a real temp file path (not :memory:)
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            a = SqliteAdapter(path)
+            assert a._is_temp is False
+            a.close()
+            # File should still exist since _is_temp=False skips unlink
+            assert a._conn is None
+            # The file itself is left on disk (acceptable — non-temp path)
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_close_twice_is_safe(self):
+        """Calling close() twice must not raise — second close is a no-op."""
+        from src.db.sqlite_adapter import SqliteAdapter
+        a = SqliteAdapter(":memory:")
+        a.init_schema()
+        a.close()
+        assert a._conn is None
+        # Second close — must not raise
+        a.close()
+        assert a._conn is None
+
+    def test_close_swallows_oserror_from_unlink(self):
+        """When os.unlink raises OSError during temp file cleanup, close() must not raise."""
+        import os
+        from unittest.mock import patch
+
+        # os is imported locally inside close(), so patch at the call site
+        with patch("os.unlink", side_effect=OSError("disk full")):
+            from src.db.sqlite_adapter import SqliteAdapter
+            a = SqliteAdapter(":memory:")
+            a.close()
+        assert a._conn is None
+
     def test_context_manager_enter_returns_self(self):
         """__enter__ must return self so 'with adapter:' works."""
         from src.db.sqlite_adapter import SqliteAdapter
