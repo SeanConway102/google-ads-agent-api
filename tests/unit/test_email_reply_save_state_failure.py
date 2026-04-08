@@ -139,6 +139,56 @@ class TestEmailReplySaveDebateStateFailure:
             "Raw exception text leaked into client-facing error detail"
         )
 
+    def test_reject_path_save_debate_state_failure_returns_structured_error(
+        self, mock_adapter
+    ):
+        """
+        When save_debate_state fails during the reject path (intent == "reject"),
+        the route must return a structured 500 error — not an unhandled exception.
+
+        This gap was identified during adversarial review of the approve path fix.
+        The reject path has identical save_debate_state logic and was fixed at
+        the same time.
+        """
+        campaign_id = uuid.uuid4()
+        mock_adapter.get_campaign_by_owner_email.return_value = (
+            self._make_campaign_row()
+        )
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = (
+            self._make_debate_row(campaign_id)
+        )
+
+        mock_adapter.save_debate_state.side_effect = RuntimeError(
+            "DB connection lost"
+        )
+
+        with patch(
+            "src.api.routes.email_replies.CapabilityGuard"
+        ), patch(
+            "src.api.routes.email_replies.GoogleAdsClient"
+        ):
+            app = self._make_app(mock_adapter)
+            client = TestClient(app, raise_server_exceptions=False)
+
+            response = client.post(
+                "/email-replies",
+                json={"email_from": "owner@example.com", "body": "reject"},
+            )
+
+        # save_debate_state was called (reject path reached it)
+        assert mock_adapter.save_debate_state.called
+
+        # Must return 500 with structured error
+        assert response.status_code == 500, (
+            f"Expected 500 when save_debate_state fails in reject path, "
+            f"got {response.status_code}"
+        )
+        # Must NOT return status="rejected"
+        assert not (
+            response.status_code == 200
+            and response.json().get("status") == "rejected"
+        ), "Reject path save failure must not return status='rejected'"
+
     def test_save_debate_state_failure_does_not_return_approved(
         self, mock_adapter
     ):
