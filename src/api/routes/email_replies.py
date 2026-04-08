@@ -134,7 +134,7 @@ def handle_email_reply(body: EmailReplyPayload) -> EmailReplyResponse:
                     executed_proposals.append(ptype)
                 else:
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=f"Unknown proposal type: {ptype!r}",
                     )
             except CapabilityDenied:

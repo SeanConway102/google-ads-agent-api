@@ -37,7 +37,7 @@ def _campaign_to_response(row: dict) -> CampaignResponse:
         campaign_status = CampaignStatus(row["status"])
     except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Campaign has unknown status: {row['status']!r}",
         )
 
@@ -48,7 +48,7 @@ def _campaign_to_response(row: dict) -> CampaignResponse:
             campaign_type_val = CampaignType(row["campaign_type"])
         except ValueError:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Campaign has unknown campaign_type: {row['campaign_type']!r}",
             )
 
@@ -181,7 +181,7 @@ def get_campaign_insights(
         campaign_status = CampaignStatus(row["status"])
     except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Campaign has unknown status: {row['status']!r}",
         )
 
@@ -282,7 +282,7 @@ def approve_campaign_action(
                 executed_proposals.append(ptype)
             else:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Unknown proposal type: {ptype!r}",
                 )
         except CapabilityDenied:
@@ -364,7 +364,7 @@ def override_campaign_action(
             )
         else:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown action type: {body.action_type!r}",
             )
     except CapabilityDenied:

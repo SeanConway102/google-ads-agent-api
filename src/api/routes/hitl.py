@@ -117,7 +117,7 @@ def decide_hitl_proposal(
 
     if body.decision not in ("approved", "rejected"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Decision must be 'approved' or 'rejected'",
         )
 
