@@ -138,3 +138,40 @@ class TestReplyHandlerPhaseNotPending:
 
         # Silently discarded — no proposal created
         mock_adapter.create_hitl_proposal.assert_not_called()
+
+    def test_pending_manual_review_approved_reply_falls_through_without_creating_proposal(self):
+        """
+        When phase=PENDING_MANUAL_REVIEW but the owner replies 'yes' (approved),
+        the function should fall through without creating a hitl_proposal.
+        This covers the 80->exit branch (if decision != 'question': fall through to exit).
+        """
+        campaign_uuid = uuid.uuid4()
+        mock_adapter = MagicMock()
+        mock_adapter.get_campaign_by_owner_email.return_value = {
+            "id": campaign_uuid,
+            "campaign_id": "cmp_001",
+            "customer_id": "cust_001",
+            "name": "Test Campaign",
+            "owner_email": "owner@example.com",
+            "hitl_enabled": True,
+        }
+        mock_adapter.get_latest_debate_state_any_cycle.return_value = {
+            "id": 1,
+            "phase": "pending_manual_review",  # PENDING — NOT early-return
+            "round_number": 3,
+            "campaign_id": campaign_uuid,
+            "green_proposals": [{"type": "keyword_add", "ad_group_id": "ag_001", "keywords": ["shoes"]}],
+            "red_objections": [],
+            "consensus_reached": False,
+        }
+
+        with patch("src.services.reply_handler.PostgresAdapter", return_value=mock_adapter):
+            handle_inbound_reply(
+                from_email="owner@example.com",
+                to_email="reply@adsagent.ai",
+                subject="Re: [AdsAgent] Action required",
+                body="yes",  # parse_reply → "approved" — NOT "question"
+            )
+
+        # Approved decision does NOT create a hitl_proposal in pending phase
+        mock_adapter.create_hitl_proposal.assert_not_called()

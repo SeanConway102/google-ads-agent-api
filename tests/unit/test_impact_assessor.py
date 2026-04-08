@@ -37,6 +37,26 @@ class TestIsAboveThreshold:
         )
         assert result is False
 
+    def test_budget_update_zero_current_returns_false_without_division(self):
+        """Budget update with current_value=0 returns False (avoids zero division)."""
+        from src.services.impact_assessor import is_above_threshold
+        result = is_above_threshold(
+            proposal_type="budget_update",
+            current_value=0,
+            proposed_value=100.0,
+        )
+        assert result is False
+
+    def test_budget_update_negative_current_returns_false(self):
+        """Budget update with negative current_value returns False (debt scenario)."""
+        from src.services.impact_assessor import is_above_threshold
+        result = is_above_threshold(
+            proposal_type="budget_update",
+            current_value=-50.0,
+            proposed_value=0.0,
+        )
+        assert result is False
+
     def test_keyword_add_above_5_is_above_threshold(self):
         """Adding >5 keywords at once is above threshold."""
         from src.services.impact_assessor import is_above_threshold
