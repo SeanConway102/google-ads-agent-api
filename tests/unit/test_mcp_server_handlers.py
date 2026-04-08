@@ -240,6 +240,24 @@ class TestHandleUpdateCampaignBudget:
                 "budget_amount_micros": 5000000,
             })
 
+    def test_negative_budget_passes_through(self):
+        """Negative budget_amount_micros is passed through to the API (API validates)."""
+        from src.mcp.server import handle_update_campaign_budget
+
+        mock_client = MagicMock()
+        mock_client.update_campaign_budget.return_value = False
+
+        with patch("src.mcp.server._make_client", return_value=mock_client):
+            result = handle_update_campaign_budget({
+                "customer_id": "123-456-7890",
+                "campaign_id": "111",
+                "budget_amount_micros": -100,
+            })
+
+        # Handler does not validate budget — passes through to API
+        mock_client.update_campaign_budget.assert_called_once()
+        assert result["success"] is False
+
 
 class TestHandleAddKeywords:
     """handle_add_keywords adds keywords to an ad group."""
