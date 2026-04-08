@@ -34,6 +34,7 @@ def test_required_third_party_packages_in_requirements():
         "turtle", "turtledemo", "colorsys", "random", "statistics",
         "numbers", "math", "cmath", "decimal", "fractions",
         "base64", "binhex", "quopri", "uu",
+        "sqlite3",
         # Special
         "__future__",
     }
