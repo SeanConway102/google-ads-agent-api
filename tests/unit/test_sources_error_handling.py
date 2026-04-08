@@ -156,3 +156,80 @@ async def test_fetch_academic_sources_handles_missing_url():
 
         assert len(results) == 1
         assert results[0].url is None
+
+
+@pytest.mark.asyncio
+async def test_jina_parallel_search_web_returns_empty_on_httpx_gather_exception(monkeypatch):
+    """
+    When asyncio.gather itself raises (not a returned exception object),
+    jina_parallel_search_web catches it via the outer except Exception
+    and returns [].
+    """
+    from src.research.sources import jina_parallel_search_web
+
+    mock_settings = MagicMock()
+    mock_settings.JINA_API_KEY = "test-key"
+    monkeypatch.setattr("src.research.sources.get_settings", lambda: mock_settings)
+
+    # Make asyncio.gather itself raise
+    monkeypatch.setattr("asyncio.gather", AsyncMock(side_effect=Exception("gather failed")))
+
+    results = await jina_parallel_search_web(["test query"])
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_jina_read_url_returns_empty_on_httpx_client_exception(monkeypatch):
+    """
+    When httpx client.get raises an exception (not just non-200 status),
+    jina_read_url catches it via the outer except Exception and returns ''.
+    """
+    from src.research.sources import jina_read_url
+
+    mock_settings = MagicMock()
+    mock_settings.JINA_API_KEY = "test-key"
+    monkeypatch.setattr("src.research.sources.get_settings", lambda: mock_settings)
+
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(side_effect=Exception("connection reset"))
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: mock_client)
+
+    result = await jina_read_url("https://example.com/article")
+    assert result == ""
+
+
+@pytest.mark.asyncio
+async def test_fetch_academic_sources_returns_empty_when_search_raises(monkeypatch):
+    """
+    When jina_parallel_search_web raises an exception (not returns []),
+    fetch_academic_sources catches it via the outer try/except and returns [].
+    """
+    from src.research.sources import fetch_academic_sources
+
+    monkeypatch.setattr(
+        "src.research.sources.jina_parallel_search_web",
+        AsyncMock(side_effect=Exception("search API down"))
+    )
+
+    results = await fetch_academic_sources(["test"])
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_industry_news_returns_empty_when_search_raises(monkeypatch):
+    """
+    When jina_parallel_search_web raises an exception, fetch_industry_news
+    catches it via the outer try/except and returns [].
+    """
+    from src.research.sources import fetch_industry_news
+
+    monkeypatch.setattr(
+        "src.research.sources.jina_parallel_search_web",
+        AsyncMock(side_effect=Exception("search API down"))
+    )
+
+    results = await fetch_industry_news(["test"])
+    assert results == []

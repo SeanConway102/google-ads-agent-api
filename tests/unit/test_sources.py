@@ -57,6 +57,72 @@ async def test_fetch_academic_sources_returns_list():
 
 
 @pytest.mark.asyncio
+async def test_jina_parallel_search_web_handles_non_200_response(monkeypatch):
+    """When a search response has non-200 status (but no exception), results are skipped."""
+    from src.research.sources import jina_parallel_search_web
+
+    mock_settings = MagicMock()
+    mock_settings.JINA_API_KEY = "test-key"
+    monkeypatch.setattr("src.research.sources.get_settings", lambda: mock_settings)
+
+    # Patch httpx.AsyncClient with a mock that returns a non-200 response
+    mock_response = MagicMock()
+    mock_response.status_code = 500  # Server error, not an exception
+
+    async def mock_get(*args, **kwargs):
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.get = mock_get
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: mock_client)
+
+    results = await jina_parallel_search_web(["test query"])
+    # Should be empty — the 500 response causes results.extend([])
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_jina_parallel_search_web_handles_exception_object_in_responses(monkeypatch):
+    """When asyncio.gather returns an exception object in the list, it's skipped via isinstance check."""
+    from src.research.sources import jina_parallel_search_web
+
+    mock_settings = MagicMock()
+    mock_settings.JINA_API_KEY = "test-key"
+    monkeypatch.setattr("src.research.sources.get_settings", lambda: mock_settings)
+
+    # Patch httpx.AsyncClient to return a mock client
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(return_value={"results": []})
+
+    async def mock_get(*args, **kwargs):
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.get = mock_get
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: mock_client)
+
+    # Monkeypatch asyncio.gather to return a list with an exception object as one result
+    async def mock_gather(*tasks, **kwargs):
+        return [Exception("one request failed"), mock_response]
+
+    monkeypatch.setattr("asyncio.gather", mock_gather)
+
+    results = await jina_parallel_search_web(["test query"])
+    # The first element is an exception object (BaseException subclass)
+    # isinstance(resp, BaseException) is True, so results.extend([])
+    # The second element is a normal response with status 200 and empty results
+    # Should return [] because the only result had empty results
+    assert results == []
+
+
+@pytest.mark.asyncio
 async def test_fetch_industry_news_returns_list():
     """fetch_industry_news should return a list of Source objects."""
     from src.research.sources import fetch_industry_news
@@ -141,3 +207,30 @@ async def test_jina_read_url_returns_empty_on_http_error(monkeypatch):
 
     result = await jina_read_url("https://example.com/not-found")
     assert result == ""
+
+
+@pytest.mark.asyncio
+async def test_jina_read_url_returns_text_on_200(monkeypatch):
+    """jina_read_url returns resp.text when status_code is 200."""
+    from src.research.sources import jina_read_url
+
+    mock_settings = MagicMock()
+    mock_settings.JINA_API_KEY = "test-key"
+    monkeypatch.setattr("src.research.sources.get_settings", lambda: mock_settings)
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = "Full article text here"
+
+    async def mock_get(*args, **kwargs):
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.get = mock_get
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: mock_client)
+
+    result = await jina_read_url("https://example.com/article")
+    assert result == "Full article text here"
