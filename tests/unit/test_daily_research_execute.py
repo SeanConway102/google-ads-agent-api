@@ -143,6 +143,26 @@ class TestExecuteAllowedActionsMatchTypeUpdate:
         mock_gads.update_keyword_match_types.assert_not_called()
 
 
+class TestExecuteAllowedActionsEmptyProposals:
+    """Test that _execute_allowed_actions returns early when proposals is empty."""
+
+    def test_empty_proposals_list_returns_early(self):
+        """When proposals is an empty list, _execute_allowed_actions returns immediately."""
+        from src.cron.daily_research import _execute_allowed_actions
+
+        mock_gads = MagicMock()
+        guard = CapabilityGuard()
+        campaign = {"customer_id": "123"}
+
+        # Should not raise and should not call any client methods
+        _execute_allowed_actions([], campaign, mock_gads, guard)
+
+        assert not mock_gads.add_keywords.called
+        assert not mock_gads.remove_keywords.called
+        assert not mock_gads.update_keyword_bids.called
+        assert not mock_gads.update_keyword_match_types.called
+
+
 class TestExecuteAllowedActionsExecutionError:
     """Test that generic exceptions during proposal execution are caught and logged."""
 

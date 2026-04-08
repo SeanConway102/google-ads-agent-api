@@ -758,6 +758,135 @@ class TestSendHitlEmailsMissingOwner:
             mock_email.assert_not_called()
 
 
+class TestSendHitlEmailsErrorHandling:
+    """Tests for _send_hitl_emails error handling."""
+
+    def test_email_failure_dispatches_hitl_email_failed_webhook(self):
+        """When send_proposal_email raises, hitl_email_failed webhook is dispatched."""
+        from src.cron.daily_research import _send_hitl_emails
+
+        import src.cron.daily_research as dr
+
+        mock_webhook = MagicMock()
+        state = MagicMock()
+        state.green_proposals = [
+            {"type": "keyword_add", "impact_summary": "Add 10 keywords", "reasoning": "CTR opportunity"},
+        ]
+
+        campaign = {
+            "id": "uuid1",
+            "campaign_id": "12345",
+            "name": "Test Campaign",
+            "hitl_enabled": True,
+            "owner_email": "owner@example.com",
+        }
+
+        with patch.object(dr, "send_proposal_email", side_effect=Exception("SMTP timeout")):
+            _send_hitl_emails(state, campaign, mock_webhook)
+
+        mock_webhook.dispatch.assert_called_once()
+        call_args = mock_webhook.dispatch.call_args
+        assert call_args[0][0] == "hitl_email_failed"
+        assert "error" in call_args[0][1]
+        assert "SMTP timeout" in call_args[0][1]["error"]
+
+
+class TestRunDailyResearchTargetCampaign:
+    """Tests for run_daily_research with target_campaign_id filter."""
+
+    def test_filters_to_target_campaign_when_provided(self):
+        """When target_campaign_id is set, only that campaign is processed."""
+        from src.cron.daily_research import run_daily_research
+
+        cid_target = uuid4()
+        cid_other = uuid4()
+
+        campaigns = [
+            {
+                "id": str(cid_target),
+                "campaign_id": "12345",
+                "customer_id": "cust_target",
+                "name": "Target Campaign",
+                "api_key_token": "token",
+                "status": "active",
+            },
+            {
+                "id": str(cid_other),
+                "campaign_id": "67890",
+                "customer_id": "cust_other",
+                "name": "Other Campaign",
+                "api_key_token": "token",
+                "status": "active",
+            },
+        ]
+
+        mock_db = MagicMock()
+        mock_db.list_campaigns.return_value = campaigns
+        mock_db.search_wiki.return_value = []
+
+        final_state = DebateState(
+            cycle_date="2026-04-08",
+            campaign_id=cid_target,
+            phase=Phase.CONSENSUS_LOCKED,
+            consensus_reached=True,
+            round_number=1,
+            green_proposals=[],
+            red_objections=[],
+        )
+
+        mock_validator = AsyncMock(return_value=final_state)
+
+        mock_wiki_writer = MagicMock()
+        mock_webhook_service = MagicMock()
+        mock_audit_service = MagicMock()
+        mock_gads_client = MagicMock()
+        mock_gads_client.get_performance_report.return_value = MagicMock(
+            impressions=0, clicks=0, ctr=0.0, spend_micros=0,
+            conversions=0.0, avg_cpc_micros=0,
+        )
+
+        import src.cron.daily_research as dr
+        import src.config as config_module
+
+        original_get_settings = config_module.get_settings
+        original_dr_get_settings = dr.get_settings
+        config_module.get_settings = _mock_get_settings
+        dr.get_settings = _mock_get_settings
+
+        original_modules = {
+            "PostgresAdapter": dr.PostgresAdapter,
+            "GoogleAdsClient": dr.GoogleAdsClient,
+            "AdversarialValidator": dr.AdversarialValidator,
+            "WikiWriter": dr.WikiWriter,
+            "WebhookService": dr.WebhookService,
+            "AuditService": dr.AuditService,
+        }
+
+        dr.PostgresAdapter = MagicMock(return_value=mock_db)
+        dr.GoogleAdsClient = MagicMock(return_value=mock_gads_client)
+        dr.AdversarialValidator = MagicMock(return_value=mock_validator)
+        dr.WikiWriter = MagicMock(return_value=mock_wiki_writer)
+        dr.WebhookService = MagicMock(return_value=mock_webhook_service)
+        dr.AuditService = MagicMock(return_value=mock_audit_service)
+
+        try:
+            run_daily_research(target_campaign_id=str(cid_target))
+            # Validator should be called once (only for the target campaign)
+            # run_cycle is an async function; call_count works on the mock
+            assert mock_validator.run_cycle.call_count == 1, (
+                f"Expected 1 call to run_cycle, got {mock_validator.run_cycle.call_count}"
+            )
+            # Webhook should have been called (consensus reached)
+            dispatch_calls = mock_webhook_service.dispatch.call_args_list
+            event_names = [call[0][0] for call in dispatch_calls]
+            assert "consensus_reached" in event_names
+        finally:
+            for name, cls in original_modules.items():
+                setattr(dr, name, cls)
+            dr.get_settings = original_dr_get_settings
+            config_module.get_settings = original_get_settings
+
+
 class TestValidatorRunCycleCalledWithAwait:
     """
     RED: run_daily_research must await validator.run_cycle() — it is an async def.
