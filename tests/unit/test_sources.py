@@ -89,3 +89,55 @@ async def test_fetch_academic_sources_empty_on_error():
     with patch("src.research.sources.jina_parallel_search_web", side_effect=Exception("network error")):
         results = await fetch_academic_sources(ACADEMIC_SEARCH_QUERIES[:1])
         assert results == []
+
+
+@pytest.mark.asyncio
+async def test_jina_parallel_search_web_returns_empty_when_no_api_key(monkeypatch):
+    """jina_parallel_search_web returns [] immediately when JINA_API_KEY is not set."""
+    from src.research.sources import jina_parallel_search_web
+
+    mock_settings = MagicMock()
+    mock_settings.JINA_API_KEY = None
+    monkeypatch.setattr("src.research.sources.get_settings", lambda: mock_settings)
+
+    results = await jina_parallel_search_web(["test query"])
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_jina_read_url_returns_empty_when_no_api_key(monkeypatch):
+    """jina_read_url returns '' immediately when JINA_API_KEY is not set."""
+    from src.research.sources import jina_read_url
+
+    mock_settings = MagicMock()
+    mock_settings.JINA_API_KEY = None
+    monkeypatch.setattr("src.research.sources.get_settings", lambda: mock_settings)
+
+    result = await jina_read_url("https://example.com/article")
+    assert result == ""
+
+
+@pytest.mark.asyncio
+async def test_jina_read_url_returns_empty_on_http_error(monkeypatch):
+    """jina_read_url returns '' when httpx request fails (non-200 status)."""
+    from src.research.sources import jina_read_url
+
+    mock_settings = MagicMock()
+    mock_settings.JINA_API_KEY = "test-key"
+    monkeypatch.setattr("src.research.sources.get_settings", lambda: mock_settings)
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+
+    async def mock_get(*args, **kwargs):
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.get = mock_get
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: mock_client)
+
+    result = await jina_read_url("https://example.com/not-found")
+    assert result == ""
