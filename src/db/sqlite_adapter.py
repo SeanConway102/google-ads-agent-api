@@ -35,13 +35,15 @@ class SqliteAdapter(DatabaseAdapter):
             # Use a file-based temp DB instead of :memory: so all connections
             # share the same database (avoids SQLite connection isolation issues)
             import tempfile
-            fd, self._database_path = tempfile.mkstemp(suffix=".db")
             import os
+            fd, self._database_path = tempfile.mkstemp(suffix=".db")
             os.close(fd)
+            self._is_temp = True
             self._conn = sqlite3.connect(self._database_path, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
         else:
             self._database_path = database_url
+            self._is_temp = False
             self._conn = sqlite3.connect(self._database_path, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
 
@@ -50,6 +52,25 @@ class SqliteAdapter(DatabaseAdapter):
         cur = self._conn.cursor()
         cur.executescript(_SCHEMA)
         self._conn.commit()
+
+    def close(self) -> None:
+        """Close the database connection and clean up the temp file if created."""
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+        if getattr(self, "_is_temp", False) and getattr(self, "_database_path", None):
+            import os
+            try:
+                os.unlink(self._database_path)
+            except OSError:
+                pass
+        self._database_path = None
+
+    def __enter__(self) -> "SqliteAdapter":
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
 
     # ─── Base operations ─────────────────────────────────────────────────────
 
