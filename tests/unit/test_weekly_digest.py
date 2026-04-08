@@ -2,6 +2,7 @@
 RED: Write the failing test first.
 Tests for src/cron/weekly_digest.py — weekly HITL digest email cron.
 """
+import os
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -252,3 +253,161 @@ class TestSendWeeklyDigests:
             result = send_weekly_digests()
 
             assert result == {"sent": 0, "failed": 1}
+
+
+class TestExpireOldProposals:
+    """Tests for _expire_old_proposals()."""
+
+    def test_expires_pending_proposals_older_than_ttl_days(self):
+        """Proposals with status=pending and created_at > ttl_days ago should be marked expired."""
+        from datetime import datetime, timezone, timedelta
+        from src.cron.weekly_digest import _expire_old_proposals
+        import src.cron.weekly_digest as wd
+
+        old_proposal = {
+            "id": "proposal_old",
+            "status": "pending",
+            "created_at": (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(),
+        }
+        recent_proposal = {
+            "id": "proposal_recent",
+            "status": "pending",
+            "created_at": (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),
+        }
+
+        mock_adapter = MagicMock()
+        mock_adapter.list_campaigns.return_value = [
+            {"id": "camp_001", "name": "Test"},
+        ]
+        mock_adapter.list_hitl_proposals.side_effect = [
+            [old_proposal, recent_proposal],
+        ]
+
+        with patch.object(wd, "_adapter", return_value=mock_adapter):
+            result = _expire_old_proposals(ttl_days=7)
+
+        assert result["expired"] == 1
+        mock_adapter.update_hitl_proposal_status.assert_called_once_with("proposal_old", "expired")
+
+    def test_does_not_expire_non_pending_proposals(self):
+        """Proposals that are already approved/rejected/expired are not touched."""
+        from datetime import datetime, timezone, timedelta
+        from src.cron.weekly_digest import _expire_old_proposals
+        import src.cron.weekly_digest as wd
+
+        approved_proposal = {
+            "id": "proposal_approved",
+            "status": "approved",
+            "created_at": (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(),
+        }
+
+        mock_adapter = MagicMock()
+        mock_adapter.list_campaigns.return_value = [{"id": "camp_001"}]
+        mock_adapter.list_hitl_proposals.return_value = [approved_proposal]
+
+        with patch.object(wd, "_adapter", return_value=mock_adapter):
+            result = _expire_old_proposals(ttl_days=7)
+
+        assert result["expired"] == 0
+        mock_adapter.update_hitl_proposal_status.assert_not_called()
+
+    def test_handles_naive_datetime_created_at(self):
+        """created_at without timezone info should be treated as UTC."""
+        from datetime import datetime, timezone, timedelta
+        from src.cron.weekly_digest import _expire_old_proposals
+        import src.cron.weekly_digest as wd
+
+        naive_proposal = {
+            "id": "proposal_naive",
+            "status": "pending",
+            "created_at": (datetime.now(timezone.utc) - timedelta(days=10)).isoformat().replace("+00:00", ""),
+        }
+
+        mock_adapter = MagicMock()
+        mock_adapter.list_campaigns.return_value = [{"id": "camp_001"}]
+        mock_adapter.list_hitl_proposals.return_value = [naive_proposal]
+
+        with patch.object(wd, "_adapter", return_value=mock_adapter):
+            result = _expire_old_proposals(ttl_days=7)
+
+        assert result["expired"] == 1
+
+    def test_handles_missing_created_at(self):
+        """Proposals without created_at field are skipped without error."""
+        from src.cron.weekly_digest import _expire_old_proposals
+        import src.cron.weekly_digest as wd
+
+        no_date_proposal = {
+            "id": "proposal_no_date",
+            "status": "pending",
+        }
+
+        mock_adapter = MagicMock()
+        mock_adapter.list_campaigns.return_value = [{"id": "camp_001"}]
+        mock_adapter.list_hitl_proposals.return_value = [no_date_proposal]
+
+        with patch.object(wd, "_adapter", return_value=mock_adapter):
+            result = _expire_old_proposals(ttl_days=7)
+
+        assert result["expired"] == 0
+
+
+class TestAcquireLock:
+    """Tests for _acquire_lock()."""
+
+    def test_returns_false_when_lock_file_held_by_alive_process(self):
+        """When lock file exists and contains a live PID, _acquire_lock returns False."""
+        from src.cron.weekly_digest import _acquire_lock
+        import src.cron.weekly_digest as wd
+
+        with patch.object(wd, "_is_process_alive", return_value=True):
+            mock_lock_path = MagicMock()
+            mock_lock_path.exists.return_value = True
+            mock_lock_path.read_text.return_value = str(os.getpid() + 9999)  # different PID
+            mock_lock_path.parent.mkdir = MagicMock()
+            result = _acquire_lock(mock_lock_path)
+
+        assert result is False
+
+    def test_returns_true_when_lock_file_stale(self):
+        """When lock file exists but PID is dead, lock is acquired (overwrites stale lock)."""
+        from src.cron.weekly_digest import _acquire_lock
+        import src.cron.weekly_digest as wd
+
+        with patch.object(wd, "_is_process_alive", return_value=False):
+            mock_lock_path = MagicMock()
+            mock_lock_path.exists.return_value = True
+            mock_lock_path.read_text.return_value = str(os.getpid() + 9999)
+            mock_lock_path.parent.mkdir = MagicMock()
+            mock_lock_path.write_text = MagicMock()
+            result = _acquire_lock(mock_lock_path)
+
+        assert result is True
+        mock_lock_path.write_text.assert_called_once()
+
+    def test_returns_true_when_no_lock_file(self):
+        """When no lock file exists, lock is acquired successfully."""
+        from src.cron.weekly_digest import _acquire_lock
+        import src.cron.weekly_digest as wd
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = False
+        mock_lock_path.parent.mkdir = MagicMock()
+        mock_lock_path.write_text = MagicMock()
+        result = _acquire_lock(mock_lock_path)
+
+        assert result is True
+        mock_lock_path.write_text.assert_called_once()
+
+    def test_returns_false_when_write_fails(self):
+        """When lock file write fails (OSError), returns False without crashing."""
+        from src.cron.weekly_digest import _acquire_lock
+        import src.cron.weekly_digest as wd
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = False
+        mock_lock_path.parent.mkdir = MagicMock()
+        mock_lock_path.write_text.side_effect = OSError("disk full")
+        result = _acquire_lock(mock_lock_path)
+
+        assert result is False
