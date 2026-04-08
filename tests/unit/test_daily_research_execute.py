@@ -130,6 +130,39 @@ class TestExecuteAllowedActionsMatchTypeUpdate:
             ],
         )
 
+    def test_keyword_match_type_update_empty_updates_returns_early(self):
+        """keyword_match_type_update with empty updates should return early without calling client."""
+        from src.cron.daily_research import _execute_allowed_actions
+
+        mock_gads = MagicMock()
+        guard = CapabilityGuard()
+        campaign = {"customer_id": "123"}
+
+        _execute_allowed_actions([{"type": "keyword_match_type_update", "updates": []}], campaign, mock_gads, guard)
+
+        mock_gads.update_keyword_match_types.assert_not_called()
+
+
+class TestExecuteAllowedActionsExecutionError:
+    """Test that generic exceptions during proposal execution are caught and logged."""
+
+    def test_exception_during_execution_is_caught_and_printed(self):
+        """If a client method raises Exception, it is caught and execution continues."""
+        from src.cron.daily_research import _execute_allowed_actions
+
+        mock_gads = MagicMock()
+        mock_gads.update_keyword_match_types = MagicMock(side_effect=Exception("API error"))
+        guard = CapabilityGuard()
+        campaign = {"customer_id": "123"}
+
+        # Should not raise — exception is caught and logged
+        _execute_allowed_actions([{
+            "type": "keyword_match_type_update",
+            "updates": [{"resource_name": "r1", "match_type": "PHRASE"}],
+        }], campaign, mock_gads, guard)
+
+        mock_gads.update_keyword_match_types.assert_called_once()
+
 
 class TestExecuteAllowedActionsCapabilityDenied:
     """Test that blocked operations are blocked by capability guard."""

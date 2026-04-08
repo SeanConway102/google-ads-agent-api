@@ -3,7 +3,7 @@ RED: Failing tests for daily_research cron script.
 Tests the full daily research cycle orchestration.
 """
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from uuid import uuid4
 
 from src.agents.debate_state import DebateState, Phase
@@ -686,6 +686,76 @@ class TestRunDailyResearch:
                 setattr(dr, name, cls)
             dr.get_settings = original_dr_get_settings
             config_module.get_settings = original_get_settings
+
+
+class TestRunDailyResearchLocking:
+    """Tests for run_daily_research lock acquisition."""
+
+    def test_returns_early_when_lock_held(self):
+        """When lock cannot be acquired, run_daily_research returns early without processing."""
+        from src.cron.daily_research import run_daily_research
+
+        import src.cron.daily_research as dr
+        import src.config as config_module
+
+        original_get_settings = config_module.get_settings
+        original_dr_get_settings = dr.get_settings
+        config_module.get_settings = _mock_get_settings
+        dr.get_settings = _mock_get_settings
+
+        original_modules = {
+            "PostgresAdapter": dr.PostgresAdapter,
+            "GoogleAdsClient": dr.GoogleAdsClient,
+            "AdversarialValidator": dr.AdversarialValidator,
+            "WikiWriter": dr.WikiWriter,
+            "WebhookService": dr.WebhookService,
+            "AuditService": dr.AuditService,
+        }
+
+        dr.PostgresAdapter = MagicMock()
+        dr.GoogleAdsClient = MagicMock()
+        dr.AdversarialValidator = MagicMock()
+        dr.WikiWriter = MagicMock()
+        dr.WebhookService = MagicMock()
+        dr.AuditService = MagicMock()
+
+        try:
+            with patch.object(dr, "_acquire_lock", return_value=False):
+                run_daily_research()
+            # No campaigns fetched because we exited early
+            dr.PostgresAdapter.assert_not_called()
+            dr.AdversarialValidator.assert_not_called()
+        finally:
+            for name, cls in original_modules.items():
+                setattr(dr, name, cls)
+            dr.get_settings = original_dr_get_settings
+            config_module.get_settings = original_get_settings
+
+
+class TestSendHitlEmailsMissingOwner:
+    """Tests for _send_hitl_emails when owner_email is missing."""
+
+    def test_skips_without_error_when_no_owner_email(self):
+        """When hitl_enabled=True but no owner_email, _send_hitl_emails returns early."""
+        from src.cron.daily_research import _send_hitl_emails
+
+        import src.cron.daily_research as dr
+
+        mock_webhook = MagicMock()
+        state = MagicMock()
+        state.green_proposals = [{"type": "keyword_add"}]
+
+        campaign_no_email = {
+            "id": "uuid1",
+            "campaign_id": "12345",
+            "name": "Test",
+            "hitl_enabled": True,
+            # owner_email intentionally absent
+        }
+
+        with patch.object(dr, "send_proposal_email") as mock_email:
+            _send_hitl_emails(state, campaign_no_email, mock_webhook)
+            mock_email.assert_not_called()
 
 
 class TestValidatorRunCycleCalledWithAwait:
