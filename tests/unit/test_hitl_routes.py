@@ -133,6 +133,26 @@ class TestListHitlProposals:
 
         assert response.status_code == 404
 
+    def test_list_returns_404_when_hitl_disabled(self):
+        """
+        When hitl_enabled=False on the campaign, list_hitl_proposals returns 404.
+        HITL proposals must not be accessible for non-HITL campaigns.
+        """
+        campaign_id = uuid.uuid4()
+
+        mock_adapter = MagicMock()
+        campaign_row = make_campaign_row(str(campaign_id))
+        campaign_row["hitl_enabled"] = False
+        mock_adapter.get_campaign.return_value = campaign_row
+
+        client = TestClient(_make_app(mock_adapter), raise_server_exceptions=False)
+        response = client.get(f"/campaigns/{campaign_id}/hitl/proposals")
+
+        assert response.status_code == 404, (
+            f"Expected 404 when hitl_enabled=False, got {response.status_code}. "
+            "HITL proposals must not be accessible for non-HITL campaigns."
+        )
+
 
 class TestGetHitlProposal:
     """GET /campaigns/{uuid}/hitl/proposals/{proposal_id}"""
@@ -190,6 +210,27 @@ class TestGetHitlProposal:
         response = client.get(f"/campaigns/{campaign_id}/hitl/proposals/{proposal_id}")
 
         assert response.status_code == 404
+
+    def test_get_returns_404_when_hitl_disabled(self):
+        """
+        When hitl_enabled=False on the campaign, get_hitl_proposal returns 404.
+        HITL proposals must not be accessible for non-HITL campaigns.
+        """
+        campaign_id = uuid.uuid4()
+        proposal_id = uuid.uuid4()
+
+        mock_adapter = MagicMock()
+        campaign_row = make_campaign_row(str(campaign_id))
+        campaign_row["hitl_enabled"] = False
+        mock_adapter.get_campaign.return_value = campaign_row
+
+        client = TestClient(_make_app(mock_adapter), raise_server_exceptions=False)
+        response = client.get(f"/campaigns/{campaign_id}/hitl/proposals/{proposal_id}")
+
+        assert response.status_code == 404, (
+            f"Expected 404 when hitl_enabled=False, got {response.status_code}. "
+            "HITL proposals must not be accessible for non-HITL campaigns."
+        )
 
 
 class TestDecideHitlProposal:
