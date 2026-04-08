@@ -190,3 +190,75 @@ class TestDeliverWebhook:
             await dispatch_event(event_type="consensus_reached", payload={})
             # ok.example.com: 1 attempt; fail.example.com: 1 + 3 retries = 4
             assert mock_client.post.call_count == 5
+
+    @pytest.mark.asyncio
+    async def test_deliver_webhook_returns_false_when_delivery_log_write_fails_on_retry(self):
+        """write_webhook_delivery_log raising during retry loop is caught and logged."""
+        import httpx
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_response = MagicMock()
+            mock_response.status_code = 500  # always fail → enter retry loop
+
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_cls.return_value = mock_client
+
+            mock_db = MagicMock()
+            # First call: success (not in retry), subsequent calls raise
+            mock_db.write_webhook_delivery_log.side_effect = OSError("disk full")
+
+            result = await deliver_webhook(
+                url="https://example.com/webhook",
+                event_type="consensus_reached",
+                payload={},
+                secret=None,
+                db=mock_db,
+                subscription_id="sub_123",
+            )
+
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_dispatch_handles_deliver_webhook_exception(self):
+        """If deliver_webhook raises, dispatch catches it and continues to other webhooks."""
+        mock_deliver_raises = AsyncMock(side_effect=RuntimeError("delivery error"))
+        mock_deliver_ok = AsyncMock(return_value=True)
+
+        def deliver_side_effect(url, **kwargs):
+            if "raises" in url:
+                return mock_deliver_raises(url=url, event_type="consensus_reached",
+                                          payload={}, secret=None, db=None, subscription_id=None)
+            return mock_deliver_ok(url=url, event_type="consensus_reached",
+                                   payload={}, secret=None, db=None, subscription_id=None)
+
+        mock_deliver = MagicMock(side_effect=deliver_side_effect)
+
+        with patch("src.services.webhook_service.PostgresAdapter") as mock_adapter_cls, \
+             patch("src.services.webhook_service.deliver_webhook", mock_deliver):
+
+            mock_adapter = MagicMock()
+            mock_adapter.list_webhooks.return_value = [
+                {"id": "1", "url": "https://raises.example.com/hook",
+                 "events": ["consensus_reached"], "secret": None},
+                {"id": "2", "url": "https://ok.example.com/hook",
+                 "events": ["consensus_reached"], "secret": None},
+            ]
+            mock_adapter_cls.return_value = mock_adapter
+
+            # Must not raise — exceptions in deliver_webhook are caught
+            await dispatch_event(event_type="consensus_reached", payload={})
+            # Both webhooks should be called (one raises, one succeeds)
+            assert mock_deliver.call_count == 2
+
+    def test_dispatch_returns_early_when_postgres_adapter_init_fails(self):
+        """dispatch returns without error when PostgresAdapter() raises during lazy init."""
+        with patch("src.services.webhook_service.PostgresAdapter") as mock_cls:
+            mock_cls.side_effect = OSError("connection refused")
+
+            from src.services.webhook_service import WebhookService
+            service = WebhookService(db=None)  # force lazy init path
+            # Must not raise — the error is caught and logged internally
+            service.dispatch(event_type="consensus_reached", payload={"test": "data"})
