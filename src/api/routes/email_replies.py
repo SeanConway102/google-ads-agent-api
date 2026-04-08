@@ -2,6 +2,8 @@
 Email reply webhook — receives inbound email replies from Resend inbound webhook.
 Processes owner approve/reject/question responses to HITL proposal emails.
 """
+import logging
+
 from fastapi import APIRouter, HTTPException, status
 
 from src.api.schemas import EmailReplyPayload, EmailReplyResponse
@@ -161,7 +163,23 @@ def handle_email_reply(body: EmailReplyPayload) -> EmailReplyResponse:
         # Only mark as approved after all proposals execute successfully
         updated = dict(debate_row)
         updated["phase"] = Phase.APPROVED.value
-        _adapter().save_debate_state(updated)
+        try:
+            _adapter().save_debate_state(updated)
+        except Exception as exc:
+            # Log the actual error server-side; do NOT expose exc details to client
+            # — DB connection strings, credentials, or internal paths could be leaked.
+            logging.getLogger("email_replies").error(
+                "save_debate_state failed after Google Ads execution",
+                extra={"campaign_id": str(campaign_row["id"]), "error": str(exc)},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    "Proposals executed successfully in Google Ads but failed to save "
+                    "to database. Google Ads may have the changes — verify manually. "
+                    "Debate phase remains PENDING. Contact support if this persists."
+                ),
+            )
 
         return EmailReplyResponse(
             status="approved",
@@ -171,7 +189,20 @@ def handle_email_reply(body: EmailReplyPayload) -> EmailReplyResponse:
     elif intent == "reject":
         updated = dict(debate_row)
         updated["phase"] = Phase.REJECTED.value
-        _adapter().save_debate_state(updated)
+        try:
+            _adapter().save_debate_state(updated)
+        except Exception as exc:
+            logging.getLogger("email_replies").error(
+                "save_debate_state failed during reject",
+                extra={"campaign_id": str(campaign_row["id"]), "error": str(exc)},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    "Debate state update failed. "
+                    "Contact support if this persists."
+                ),
+            )
         return EmailReplyResponse(
             status="rejected",
             campaign_id=campaign_row["id"],
