@@ -407,3 +407,133 @@ class TestPostgresAdapterWebhooks(TestAdapterWithMock):
         })
         assert result["url"] == "https://example.com/hook"
         assert "consensus_reached" in result["events"]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HITL proposal operation tests
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestPostgresAdapterHitlProposals(TestAdapterWithMock):
+
+    @classmethod
+    def setup_class(cls):
+        proposal_row = {
+            "id": "proposal_001",
+            "campaign_id": "123e4567-e89b-12d3-a456-426614174000",
+            "proposal_type": "keyword_add",
+            "impact_summary": "Add 10 keywords",
+            "reasoning": "Green analysis shows opportunity",
+            "status": "pending",
+            "created_at": "2026-04-06T10:00:00Z",
+            "updated_at": "2026-04-06T10:00:00Z",
+            "decided_at": None,
+            "replier_response": None,
+        }
+        cls._mock_cursor = make_mock_cursor(fetchone_result=proposal_row, fetchall_result=[proposal_row])
+        super().setup_class()
+
+    def test_list_hitl_proposals_returns_proposals(self):
+        """list_hitl_proposals returns proposals for a campaign ordered by created_at DESC."""
+        adapter = self.make_adapter()
+        from uuid import UUID
+        result = adapter.list_hitl_proposals(UUID("123e4567-e89b-12d3-a456-426614174000"))
+        assert isinstance(result, list)
+        assert len(result) == 1
+        call_args = self._mock_cursor.execute.call_args
+        assert "ORDER BY created_at DESC" in call_args[0][0]
+
+    def test_list_hitl_proposals_filters_by_status(self):
+        """list_hitl_proposals with status filter includes status in WHERE clause."""
+        cursor = make_mock_cursor(fetchall_result=[])
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        adapter.list_hitl_proposals(UUID("123e4567-e89b-12d3-a456-426614174000"), status="pending")
+        call_args = cursor.execute.call_args
+        sql_query = call_args[0][0]
+        assert "status = %s" in sql_query, "Must filter by status when provided"
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_update_hitl_proposal_status_returns_updated_row(self):
+        """update_hitl_proposal_status updates status, replier_response, decided_at and returns row."""
+        cursor = make_mock_cursor(fetchone_result={
+            "id": "proposal_001",
+            "status": "approved",
+            "replier_response": "LGTM",
+            "decided_at": "2026-04-06T12:00:00Z",
+        })
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.update_hitl_proposal_status(
+            UUID("00000000-0000-0000-0000-000000000001"),
+            status="approved",
+            replier_response="LGTM",
+        )
+        assert result["status"] == "approved"
+        cursor.execute.assert_called()
+        call_args = cursor.execute.call_args
+        assert "UPDATE hitl_proposals" in call_args[0][0] and "status = %s" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_update_hitl_proposal_status_returns_empty_dict_when_not_found(self):
+        """update_hitl_proposal_status returns empty dict when no row matches."""
+        cursor = make_mock_cursor(fetchone_result=None)
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.update_hitl_proposal_status(
+            UUID("00000000-0000-0000-0000-000000000999"),
+            status="approved",
+        )
+        assert result == {}
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_get_hitl_proposal_returns_proposal(self):
+        """get_hitl_proposal returns a proposal dict when found."""
+        adapter = self.make_adapter()
+        from uuid import UUID
+        result = adapter.get_hitl_proposal(UUID("00000000-0000-0000-0000-000000000001"))
+        assert result is not None
+        assert result["proposal_type"] == "keyword_add"
+        self._mock_cursor.execute.assert_called()
+        call_args = self._mock_cursor.execute.call_args
+        assert "SELECT * FROM hitl_proposals WHERE id = %s" in call_args[0][0]
+
+    def test_get_hitl_proposal_returns_none_when_not_found(self):
+        """get_hitl_proposal returns None when no proposal exists."""
+        cursor = make_mock_cursor(fetchone_result=None)
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.get_hitl_proposal(UUID("00000000-0000-0000-0000-000000000999"))
+        assert result is None
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
