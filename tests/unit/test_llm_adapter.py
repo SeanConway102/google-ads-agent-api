@@ -4,6 +4,7 @@ Tests for src/llm/adapter.py — LLM provider interface and MiniMax implementati
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from src.llm.adapter import (
@@ -265,3 +266,125 @@ class TestChatCompletionFunction:
             assert isinstance(result, ChatCompletion)
             assert result.id == "test-id"
             mock_factory.assert_called_once_with()
+
+
+class TestMiniMaxProviderChatCompletion:
+    """Tests for MiniMaxProvider.chat_completion HTTP error handling."""
+
+    def test_chat_completion_raises_runtime_error_on_http_error(self):
+        """httpx.HTTPError is caught and re-raised as RuntimeError."""
+        import httpx
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+
+            async def mock_post(*args, **kwargs):
+                raise httpx.HTTPError("connection timeout")
+
+            with patch.object(httpx.AsyncClient, "post", mock_post):
+                with pytest.raises(RuntimeError, match="MiniMax API request failed"):
+                    import asyncio
+                    asyncio.run(provider.chat_completion([Message(role="user", content="hi")]))
+
+    def test_chat_completion_raises_runtime_error_on_non_2xx_response(self):
+        """Non-2xx HTTP response raises RuntimeError via raise_for_status."""
+        import httpx
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+
+            async def mock_post(*args, **kwargs):
+                response = MagicMock()
+                response.status_code = 500
+                response.raise_for_status.side_effect = httpx.HTTPError("500 server error")
+                return response
+
+            with patch.object(httpx.AsyncClient, "post", mock_post):
+                with pytest.raises(RuntimeError, match="MiniMax API request failed"):
+                    import asyncio
+                    asyncio.run(provider.chat_completion([Message(role="user", content="hi")]))
+
+
+class TestMiniMaxProviderStreamCompletion:
+    """Tests for MiniMaxProvider.stream_completion."""
+
+    @pytest.mark.asyncio
+    async def test_stream_completion_yields_chunks(self):
+        """stream_completion yields StreamChunk objects from SSE data lines."""
+        import httpx
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+
+            mock_response = MagicMock()
+            mock_response.raise_for_status = MagicMock()
+
+            async def mock_aiter_lines():
+                yield 'data: {"id":"chunk1","choices":[{"delta":"Hello","finish_reason":null,"index":0}]}'
+                yield 'data: {"id":"chunk2","choices":[{"delta":" world","finish_reason":null,"index":0}]}'
+                yield "data: [DONE]"
+
+            mock_response.aiter_lines = mock_aiter_lines
+
+            mock_client_context = MagicMock()
+            mock_client_context.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_client_context.__aexit__ = AsyncMock(return_value=None)
+
+            with patch.object(httpx.AsyncClient, "stream", return_value=mock_client_context):
+                chunks = []
+                async for chunk in provider.stream_completion([Message(role="user", content="hi")]):
+                    chunks.append(chunk)
+
+                assert len(chunks) == 2
+                assert chunks[0].id == "chunk1"
+                assert chunks[0].delta == "Hello"
+                assert chunks[1].delta == " world"
+
+    @pytest.mark.asyncio
+    async def test_stream_completion_raises_runtime_error_on_http_error(self):
+        """HTTP error during streaming raises RuntimeError."""
+        import httpx
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+
+            mock_client_context = MagicMock()
+            mock_client_context.__aenter__ = AsyncMock(side_effect=httpx.HTTPError("stream failed"))
+            mock_client_context.__aexit__ = AsyncMock(return_value=None)
+
+            with patch.object(httpx.AsyncClient, "stream", return_value=mock_client_context):
+                with pytest.raises(RuntimeError, match="MiniMax streaming request failed"):
+                    async for _ in provider.stream_completion([Message(role="user", content="hi")]):
+                        pass
+
+
+class TestFunctionToDict:
+    """Tests for _function_to_dict."""
+
+    def test_function_to_dict_returns_dict(self):
+        """_function_to_dict converts FunctionDefinition to API-compatible dict."""
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+            func = FunctionDefinition(
+                name="add_keywords",
+                description="Add keywords",
+                parameters={"type": "object", "properties": {}},
+            )
+            result = provider._function_to_dict(func)
+            assert result["name"] == "add_keywords"
+            assert result["description"] == "Add keywords"
+            assert result["parameters"]["type"] == "object"
+
+
+class TestProviderFactoryErrorMessages:
+    """Tests that factory error messages are descriptive."""
+
+    def test_unknown_provider_error_contains_provider_name(self):
+        """Error for unknown provider includes the provider name."""
+        with patch("src.llm.adapter.get_settings", _mock_settings), \
+             patch("src.config.get_settings", _mock_settings):
+            with pytest.raises(ValueError, match="nonexistent"):
+                create_llm_provider("nonexistent")
+
+    def test_unknown_provider_error_lists_available_providers(self):
+        """Error for unknown provider lists all available providers."""
+        with patch("src.llm.adapter.get_settings", _mock_settings), \
+             patch("src.config.get_settings", _mock_settings):
+            with pytest.raises(ValueError, match="Available:"):
+                create_llm_provider("bad_provider")
