@@ -108,6 +108,16 @@ class TestCapabilityGuardCapabilityDenied:
             assert exc.operation == "google_ads.delete_campaign"
             assert exc.reason is not None  # has a reason from the rule
 
+    def test_exception_without_reason_has_no_suffix(self):
+        """CapabilityDenied with no reason omits the ' — reason' suffix from its detail."""
+        exc = CapabilityDenied("google_ads.delete_campaign")
+        assert exc.operation == "google_ads.delete_campaign"
+        assert exc.reason is None
+        # Detail must NOT contain a dash suffix when reason is absent
+        assert " — " not in str(exc)
+        assert str(exc) == "Capability denied: google_ads.delete_campaign"
+
+
     def test_can_returns_false_for_denied(self):
         """can() returns False without raising for denied operations."""
         guard = CapabilityGuard()
@@ -127,3 +137,12 @@ class TestCapabilityGuardWritePermission:
         guard = CapabilityGuard(allowed_operations=set())  # deny all
         with pytest.raises(CapabilityDenied):
             guard.require_write_permission("google_ads.create_campaign")
+
+    def test_require_write_permission_allows_read_ops_without_check(self):
+        """require_write_permission returns silently for read operations (no check called)."""
+        guard = CapabilityGuard(allowed_operations=set())  # no write ops allowed
+        # Read operations (google_ads.list_*) are not write ops, so check is skipped.
+        # Should return None without raising.
+        result = guard.require_write_permission("google_ads.list_campaigns")
+        assert result is None
+
