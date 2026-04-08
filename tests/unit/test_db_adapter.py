@@ -223,6 +223,26 @@ class TestPostgresAdapterCampaigns(TestAdapterWithMock):
         psycopg2.connect = MagicMock(return_value=mock_conn_class)
         importlib.reload(pa_module)
 
+    def test_get_campaign_by_owner_email_returns_campaign(self):
+        """get_campaign_by_owner_email returns a campaign when found by email."""
+        cursor = make_mock_cursor(fetchone_result=CAMPAIGN_ROW)
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        result = adapter.get_campaign_by_owner_email("owner@example.com")
+        assert result is not None
+        assert result["campaign_id"] == "cmp_001"
+        call_args = cursor.execute.call_args
+        assert "owner_email" in call_args[0][0]
+        assert "LIMIT 1" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Wiki operation tests
@@ -261,6 +281,42 @@ class TestPostgresAdapterWiki(TestAdapterWithMock):
         sql_query = call_args[0][0]
         assert "invalidated_at IS NULL" in sql_query, \
             "Must filter out invalidated wiki entries"
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_search_wiki_strips_metacharacters(self):
+        """search_wiki strips tsquery metacharacters to prevent syntax errors."""
+        cursor = make_mock_cursor(fetchall_result=[])
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        adapter.search_wiki("keyword:exact")  # colon is a tsquery metacharacter
+        call_args = cursor.execute.call_args
+        # Should strip colon, resulting in "keyword exact" query parts
+        bound_params = call_args[0][1]
+        assert ":" not in bound_params[0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_search_wiki_returns_empty_for_query_with_only_metacharacters(self):
+        """search_wiki returns [] when query becomes empty after stripping metacharacters."""
+        cursor = make_mock_cursor(fetchall_result=[])
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        result = adapter.search_wiki(":::")
+        assert result == []
+        cursor.execute.assert_not_called()
         # Restore class mock
         mock_conn_class = make_mock_connection(self._mock_cursor)
         psycopg2.connect = MagicMock(return_value=mock_conn_class)
@@ -510,6 +566,39 @@ class TestPostgresAdapterHitlProposals(TestAdapterWithMock):
         psycopg2.connect = MagicMock(return_value=mock_conn_class)
         importlib.reload(pa_module)
 
+    def test_create_hitl_proposal_inserts_and_returns(self):
+        """create_hitl_proposal inserts a row and returns it."""
+        cursor = make_mock_cursor(fetchone_result={
+            "id": "proposal_new",
+            "campaign_id": "123e4567-e89b-12d3-a456-426614174000",
+            "proposal_type": "keyword_add",
+            "impact_summary": "Add keywords",
+            "reasoning": "Test reasoning",
+            "status": "pending",
+        })
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.create_hitl_proposal({
+            "campaign_id": UUID("123e4567-e89b-12d3-a456-426614174000"),
+            "proposal_type": "keyword_add",
+            "impact_summary": "Add keywords",
+            "reasoning": "Test reasoning",
+        })
+        assert result is not None
+        assert result["proposal_type"] == "keyword_add"
+        cursor.execute.assert_called()
+        call_args = cursor.execute.call_args
+        assert "INSERT INTO hitl_proposals" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
     def test_get_hitl_proposal_returns_proposal(self):
         """get_hitl_proposal returns a proposal dict when found."""
         adapter = self.make_adapter()
@@ -533,6 +622,289 @@ class TestPostgresAdapterHitlProposals(TestAdapterWithMock):
         from uuid import UUID
         result = adapter.get_hitl_proposal(UUID("00000000-0000-0000-0000-000000000999"))
         assert result is None
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+
+class TestPostgresAdapterWikiEntryOps(TestAdapterWithMock):
+    """Tests for wiki entry read/invalidate operations."""
+
+    @classmethod
+    def setup_class(cls):
+        cls._mock_cursor = make_mock_cursor(fetchone_result={"id": "e1", "title": "Test"})
+        super().setup_class()
+
+    def test_get_wiki_entry_returns_entry(self):
+        """get_wiki_entry fetches a specific wiki entry by ID."""
+        cursor = make_mock_cursor(fetchone_result={"id": "e1", "title": "Test"})
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.get_wiki_entry(UUID("123e4567-e89b-12d3-a456-426614174000"))
+        assert result is not None
+        assert result["title"] == "Test"
+        cursor.execute.assert_called()
+        call_args = cursor.execute.call_args
+        assert "wiki_entries" in call_args[0][0]
+        assert "WHERE id = %s" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_invalidate_wiki_entry_calls_execute(self):
+        """invalidate_wiki_entry executes UPDATE with invalidated_at and reason."""
+        cursor = make_mock_cursor()
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        adapter.invalidate_wiki_entry(UUID("123e4567-e89b-12d3-a456-426614174000"), "outdated")
+        cursor.execute.assert_called()
+        call_args = cursor.execute.call_args
+        assert "UPDATE wiki_entries" in call_args[0][0]
+        assert "invalidated_at" in call_args[0][0]
+        assert "invalidation_reason" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+
+class TestPostgresAdapterDebateReadOps(TestAdapterWithMock):
+    """Tests for debate state read operations."""
+
+    @classmethod
+    def setup_class(cls):
+        cls._mock_cursor = make_mock_cursor(fetchone_result={"id": "d1", "phase": "green_proposals"})
+        super().setup_class()
+
+    def test_get_latest_debate_state_returns_state(self):
+        """get_latest_debate_state fetches state for a specific cycle."""
+        cursor = make_mock_cursor(fetchone_result={"id": "d1", "phase": "green_proposals"})
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.get_latest_debate_state("2026-04-08", UUID("123e4567-e89b-12d3-a456-426614174000"))
+        assert result is not None
+        assert result["phase"] == "green_proposals"
+        call_args = cursor.execute.call_args
+        assert "cycle_date" in call_args[0][0]
+        assert "ORDER BY id DESC LIMIT 1" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_get_latest_debate_state_any_cycle_returns_state(self):
+        """get_latest_debate_state_any_cycle fetches most recent state regardless of cycle."""
+        cursor = make_mock_cursor(fetchone_result={"id": "d2", "phase": "red_review"})
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.get_latest_debate_state_any_cycle(UUID("123e4567-e89b-12d3-a456-426614174000"))
+        assert result is not None
+        assert result["phase"] == "red_review"
+        call_args = cursor.execute.call_args
+        assert "campaign_id" in call_args[0][0]
+        assert "ORDER BY id DESC LIMIT 1" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+
+class TestPostgresAdapterAuditLog(TestAdapterWithMock):
+    """Tests for audit log operations."""
+
+    @classmethod
+    def setup_class(cls):
+        cls._mock_cursor = make_mock_cursor(fetchone_result={"id": "a1", "action_type": "proposal_approved"})
+        super().setup_class()
+
+    def test_write_audit_log_inserts_and_returns(self):
+        """write_audit_log executes INSERT RETURNING and returns the row."""
+        cursor = make_mock_cursor(fetchone_result={"id": "a1", "action_type": "proposal_approved"})
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.write_audit_log({
+            "cycle_date": "2026-04-08",
+            "campaign_id": UUID("123e4567-e89b-12d3-a456-426614174000"),
+            "action_type": "proposal_approved",
+        })
+        assert result is not None
+        cursor.execute.assert_called()
+        call_args = cursor.execute.call_args
+        assert "INSERT INTO audit_log" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_query_audit_log_filters_by_all_params(self):
+        """query_audit_log builds a dynamic WHERE clause from provided filters."""
+        cursor = make_mock_cursor(fetchall_result=[])
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        adapter.query_audit_log(
+            campaign_id=UUID("123e4567-e89b-12d3-a456-426614174000"),
+            action_type="proposal_approved",
+            cycle_date="2026-04-08",
+            limit=50,
+        )
+        call_args = cursor.execute.call_args
+        sql_query = call_args[0][0]
+        assert "campaign_id = %s" in sql_query
+        assert "action_type = %s" in sql_query
+        assert "cycle_date = %s" in sql_query
+        assert "AND" in sql_query
+        assert call_args[0][1] == ("123e4567-e89b-12d3-a456-426614174000", "proposal_approved", "2026-04-08", 50)
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_query_audit_log_falls_back_to_no_conditions(self):
+        """query_audit_log uses '1=1' when no filters are provided."""
+        cursor = make_mock_cursor(fetchall_result=[])
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        adapter.query_audit_log()
+        call_args = cursor.execute.call_args
+        sql_query = call_args[0][0]
+        assert "1=1" in sql_query
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+
+class TestPostgresAdapterWebhookOps(TestAdapterWithMock):
+    """Tests for additional webhook operations."""
+
+    @classmethod
+    def setup_class(cls):
+        cls._mock_cursor = make_mock_cursor(fetchone_result={"id": "w1", "url": "https://example.com/webhook"})
+        super().setup_class()
+
+    def test_register_webhook_inserts_and_returns(self):
+        """register_webhook executes INSERT RETURNING and returns the webhook."""
+        cursor = make_mock_cursor(fetchone_result={"id": "w1", "url": "https://example.com/webhook"})
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        result = adapter.register_webhook({
+            "url": "https://example.com/webhook",
+            "events": ["hitl_proposal_approved"],
+            "secret": "secret123",
+        })
+        assert result is not None
+        cursor.execute.assert_called()
+        call_args = cursor.execute.call_args
+        assert "INSERT INTO webhook_subscriptions" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_list_webhooks_returns_active_only(self):
+        """list_webhooks only returns active webhook subscriptions."""
+        cursor = make_mock_cursor(fetchall_result=[{"id": "w1", "active": True}])
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        result = adapter.list_webhooks()
+        assert isinstance(result, list)
+        call_args = cursor.execute.call_args
+        assert "webhook_subscriptions" in call_args[0][0]
+        assert "active = TRUE" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_delete_webhook_calls_execute(self):
+        """delete_webhook executes DELETE FROM webhook_subscriptions."""
+        cursor = make_mock_cursor()
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        adapter.delete_webhook(UUID("123e4567-e89b-12d3-a456-426614174000"))
+        cursor.execute.assert_called()
+        call_args = cursor.execute.call_args
+        assert "DELETE FROM webhook_subscriptions" in call_args[0][0]
+        # Restore class mock
+        mock_conn_class = make_mock_connection(self._mock_cursor)
+        psycopg2.connect = MagicMock(return_value=mock_conn_class)
+        importlib.reload(pa_module)
+
+    def test_write_webhook_delivery_log_inserts_and_returns(self):
+        """write_webhook_delivery_log persists delivery attempt to webhook_delivery_log."""
+        cursor = make_mock_cursor(fetchone_result={
+            "id": "log_1",
+            "subscription_id": "sub_1",
+            "event": "hitl_proposal_approved",
+            "status": "delivered",
+        })
+        mock_conn = make_mock_connection(cursor)
+        import psycopg2
+        psycopg2.connect = MagicMock(return_value=mock_conn)
+        import src.db.postgres_adapter as pa_module
+        importlib.reload(pa_module)
+        adapter = pa_module.PostgresAdapter("postgresql://fake")
+        from uuid import UUID
+        result = adapter.write_webhook_delivery_log({
+            "subscription_id": UUID("123e4567-e89b-12d3-a456-426614174000"),
+            "event": "hitl_proposal_approved",
+            "payload": {"proposal_id": "p1"},
+            "status": "delivered",
+            "attempts": 1,
+        })
+        assert result is not None
+        cursor.execute.assert_called()
+        call_args = cursor.execute.call_args
+        assert "INSERT INTO webhook_delivery_log" in call_args[0][0]
         # Restore class mock
         mock_conn_class = make_mock_connection(self._mock_cursor)
         psycopg2.connect = MagicMock(return_value=mock_conn_class)
