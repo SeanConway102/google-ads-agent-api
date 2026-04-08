@@ -420,3 +420,69 @@ class TestDecideHitlProposal:
             f"Expected 404 when hitl_enabled=False, got {response.status_code}. "
             "HITL decisions must be rejected for non-HITL campaigns."
         )
+
+    def test_get_returns_404_when_campaign_not_found(self):
+        """Returns 404 if the campaign does not exist in get_hitl_proposal."""
+        campaign_id = uuid.uuid4()
+        proposal_id = uuid.uuid4()
+
+        mock_adapter = MagicMock()
+        mock_adapter.get_campaign.return_value = None
+
+        client = TestClient(_make_app(mock_adapter), raise_server_exceptions=False)
+        response = client.get(f"/campaigns/{campaign_id}/hitl/proposals/{proposal_id}")
+
+        assert response.status_code == 404, (
+            f"Expected 404 when campaign not found, got {response.status_code}."
+        )
+
+
+class TestDecideHitlProposalProposalCampaignMismatch:
+    """decide_hitl_proposal when proposal belongs to different campaign → 404."""
+
+    def test_decide_returns_404_when_proposal_belongs_to_different_campaign(self):
+        """Returns 404 if the proposal belongs to a different campaign in decide."""
+        campaign_id = uuid.uuid4()
+        other_campaign_id = uuid.uuid4()
+        proposal_id = uuid.uuid4()
+        proposal = make_proposal_row(
+            proposal_id=str(proposal_id),
+            campaign_id=str(other_campaign_id),  # belongs to different campaign
+            status="pending",
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.get_campaign.return_value = make_campaign_row(str(campaign_id))
+        mock_adapter.get_hitl_proposal.return_value = proposal
+
+        client = TestClient(_make_app(mock_adapter), raise_server_exceptions=False)
+        response = client.post(
+            f"/campaigns/{campaign_id}/hitl/proposals/{proposal_id}/decide",
+            json={"decision": "approved"},
+        )
+
+        assert response.status_code == 404, (
+            f"Expected 404 when proposal belongs to different campaign, got {response.status_code}."
+        )
+
+
+class TestDecideHitlProposalCampaignNotFound:
+    """decide_hitl_proposal when campaign is None → 404."""
+
+    def test_decide_returns_404_when_campaign_not_found(self):
+        """Returns 404 if the campaign does not exist in decide_hitl_proposal."""
+        campaign_id = uuid.uuid4()
+        proposal_id = uuid.uuid4()
+
+        mock_adapter = MagicMock()
+        mock_adapter.get_campaign.return_value = None
+
+        client = TestClient(_make_app(mock_adapter), raise_server_exceptions=False)
+        response = client.post(
+            f"/campaigns/{campaign_id}/hitl/proposals/{proposal_id}/decide",
+            json={"decision": "approved"},
+        )
+
+        assert response.status_code == 404, (
+            f"Expected 404 when campaign not found, got {response.status_code}."
+        )
