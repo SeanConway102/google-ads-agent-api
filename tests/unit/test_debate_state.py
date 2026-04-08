@@ -402,3 +402,146 @@ class TestDebateStateMachine:
             f"got consensus_reached={updated.consensus_reached}, phase={updated.phase}"
         )
         assert updated.phase == Phase.CONSENSUS_LOCKED
+
+
+class TestDebateStateToDictCampaignId:
+    """Test DebateState.to_dict() UUID→string conversion branch."""
+
+    def test_to_dict_skips_uuid_conversion_when_campaign_id_is_already_string(self):
+        """
+        RED: Line 54→56 (else branch) — to_dict converts campaign_id to string
+        only when it IS a UUID. When campaign_id is already a string
+        (e.g. from a prior serialization or DB round-trip), the isinstance
+        check is False and the string is returned as-is (implicit else/pass-through).
+        """
+        # Python dataclass is duck-typed: it accepts str campaign_id without error
+        state_with_str = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id="already-a-string-id",  # not a UUID
+        )
+        d = state_with_str.to_dict()
+        # isinstance(UUID) is False for a string → else branch (pass-through) → no conversion
+        assert d["campaign_id"] == "already-a-string-id"
+        assert isinstance(d["campaign_id"], str)
+
+
+class TestDebateStateMachineLoadOrInit:
+    """Test DebateStateMachine.load_or_init() idle/consensus path."""
+
+    def test_load_or_init_starts_new_cycle_when_phase_is_idle(self):
+        """
+        RED: Lines 108→110 — when existing debate has phase=IDLE,
+        load_or_init should NOT return the IDLE state, but should start
+        a fresh cycle (calls start_cycle).
+        """
+        mock_db = MagicMock()
+        mock_db.get_latest_debate_state.return_value = {
+            "cycle_date": "2026-04-06",
+            "campaign_id": str(uuid4()),
+            "phase": "idle",
+            "round_number": 1,
+            "green_proposals": [],
+            "red_objections": [],
+            "coordinator_decision": None,
+            "consensus_reached": False,
+            "compromise_proposed": False,
+            "compromise_accepted_by_green": False,
+            "compromise_accepted_by_red": False,
+        }
+        mock_db.save_debate_state.return_value = {
+            "cycle_date": "2026-04-06",
+            "campaign_id": str(uuid4()),
+            "phase": "performance_pull",
+            "round_number": 1,
+            "green_proposals": [],
+            "red_objections": [],
+            "coordinator_decision": None,
+            "consensus_reached": False,
+            "compromise_proposed": False,
+            "compromise_accepted_by_green": False,
+            "compromise_accepted_by_red": False,
+        }
+        sm = DebateStateMachine(mock_db)
+        cid = uuid4()
+        # Existing state has phase=IDLE — this should trigger start_cycle
+        state = sm.load_or_init("2026-04-06", cid)
+        # Phase should be PERFORMANCE_PULL (from start_cycle), not IDLE
+        assert state.phase == Phase.PERFORMANCE_PULL
+
+
+class TestDebateStateMachineSave:
+    """Test DebateStateMachine.save() and evaluate_consensus with None decision."""
+
+    def test_save_persists_state_and_returns_saved_copy(self):
+        """
+        RED: Line 94 — save() delegates to _save(), which persists and returns
+        the saved DebateState. Must be tested directly (not via other methods).
+        """
+        mock_db = MagicMock()
+        mock_db.save_debate_state.side_effect = lambda data: {
+            "cycle_date": data["cycle_date"],
+            "campaign_id": str(data["campaign_id"]),
+            "phase": data["phase"],
+            "round_number": data["round_number"],
+            "green_proposals": data.get("green_proposals", []),
+            "red_objections": data.get("red_objections", []),
+            "coordinator_decision": data.get("coordinator_decision"),
+            "consensus_reached": data.get("consensus_reached", False),
+            "compromise_proposed": data.get("compromise_proposed", False),
+            "compromise_accepted_by_green": False,
+            "compromise_accepted_by_red": False,
+        }
+        sm = DebateStateMachine(mock_db)
+        cid = uuid4()
+        state = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.GREEN_PROPOSES,
+            round_number=1,
+        )
+        saved = sm.save(state)
+        # save() must call _db.save_debate_state and return a DebateState
+        assert isinstance(saved, DebateState)
+        assert saved.phase == Phase.GREEN_PROPOSES
+        mock_db.save_debate_state.assert_called_once()
+
+    def test_evaluate_consensus_with_none_decision_defaults_to_continue_debate(self):
+        """
+        RED: Line 156 — when coordinator_decision is None,
+        evaluate_consensus defaults to verdict='continue_debate' (round incremented).
+        """
+        mock_db = MagicMock()
+        saved_states = []
+
+        def capture_save(data):
+            saved_states.append(data)
+            return {
+                "cycle_date": data["cycle_date"],
+                "campaign_id": str(data["campaign_id"]),
+                "phase": data["phase"],
+                "round_number": data["round_number"],
+                "green_proposals": data.get("green_proposals", []),
+                "red_objections": data.get("red_objections", []),
+                "coordinator_decision": data.get("coordinator_decision"),
+                "consensus_reached": data.get("consensus_reached", False),
+                "compromise_proposed": data.get("compromise_proposed", False),
+                "compromise_accepted_by_green": False,
+                "compromise_accepted_by_red": False,
+            }
+
+        mock_db.save_debate_state.side_effect = capture_save
+        sm = DebateStateMachine(mock_db)
+        cid = uuid4()
+        state = DebateState(
+            cycle_date="2026-04-06",
+            campaign_id=cid,
+            phase=Phase.COORDINATOR_EVALUATES,
+            round_number=1,
+        )
+        # Pass None — the function should default to 'continue_debate'
+        updated = sm.evaluate_consensus(state, None)
+        assert updated.round_number == 2
+        assert updated.phase == Phase.GREEN_PROPOSES
+        # coordinator_decision should be defaulted to {"verdict": "continue_debate"}
+        saved = saved_states[0]
+        assert saved["coordinator_decision"]["verdict"] == "continue_debate"
