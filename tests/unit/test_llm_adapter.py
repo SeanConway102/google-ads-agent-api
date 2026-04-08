@@ -302,6 +302,111 @@ class TestMiniMaxProviderChatCompletion:
                     import asyncio
                     asyncio.run(provider.chat_completion([Message(role="user", content="hi")]))
 
+    @pytest.mark.asyncio
+    async def test_chat_completion_without_functions_payload(self):
+        """chat_completion without functions param does not add 'functions' to payload."""
+        import httpx
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+
+            captured_payload = {}
+
+            async def mock_post(self, url, headers=None, json=None):
+                captured_payload.update(json)
+                response = MagicMock()
+                response.status_code = 200
+                response.raise_for_status = MagicMock()
+                response.json.return_value = {
+                    "id": "test-id",
+                    "model": "test-model",
+                    "choices": [{
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                        "index": 0,
+                    }],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    "created": 0,
+                }
+                return response
+
+            with patch.object(httpx.AsyncClient, "post", mock_post):
+                result = await provider.chat_completion(
+                    [Message(role="user", content="hi")],
+                    functions=None,  # explicitly None
+                )
+                assert "functions" not in captured_payload
+                assert result.id == "test-id"
+
+    @pytest.mark.asyncio
+    async def test_chat_completion_without_tools_payload(self):
+        """chat_completion without tools param does not add 'tools' to payload."""
+        import httpx
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+
+            captured_payload = {}
+
+            async def mock_post(self, url, headers=None, json=None):
+                captured_payload.update(json)
+                response = MagicMock()
+                response.status_code = 200
+                response.raise_for_status = MagicMock()
+                response.json.return_value = {
+                    "id": "test-id",
+                    "model": "test-model",
+                    "choices": [{
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                        "index": 0,
+                    }],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    "created": 0,
+                }
+                return response
+
+            with patch.object(httpx.AsyncClient, "post", mock_post):
+                result = await provider.chat_completion(
+                    [Message(role="user", content="hi")],
+                    tools=None,  # explicitly None
+                )
+                assert "tools" not in captured_payload
+                assert result.id == "test-id"
+
+    @pytest.mark.asyncio
+    async def test_chat_completion_with_max_tokens_payload(self):
+        """chat_completion with max_tokens adds 'max_tokens' to payload."""
+        import httpx
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+
+            captured_payload = {}
+
+            async def mock_post(self, url, headers=None, json=None):
+                captured_payload.update(json)
+                response = MagicMock()
+                response.status_code = 200
+                response.raise_for_status = MagicMock()
+                response.json.return_value = {
+                    "id": "test-id",
+                    "model": "test-model",
+                    "choices": [{
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                        "index": 0,
+                    }],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    "created": 0,
+                }
+                return response
+
+            with patch.object(httpx.AsyncClient, "post", mock_post):
+                result = await provider.chat_completion(
+                    [Message(role="user", content="hi")],
+                    max_tokens=500,
+                )
+                assert captured_payload.get("max_tokens") == 500
+                assert result.id == "test-id"
+
 
 class TestMiniMaxProviderStreamCompletion:
     """Tests for MiniMaxProvider.stream_completion."""
@@ -352,6 +457,35 @@ class TestMiniMaxProviderStreamCompletion:
                 with pytest.raises(RuntimeError, match="MiniMax streaming request failed"):
                     async for _ in provider.stream_completion([Message(role="user", content="hi")]):
                         pass
+
+    @pytest.mark.asyncio
+    async def test_stream_completion_without_max_tokens(self):
+        """stream_completion without max_tokens does not add 'max_tokens' to payload."""
+        import httpx
+        with patch("src.llm.adapter.get_settings", _mock_settings):
+            provider = MiniMaxProvider(api_key="test-key")
+
+            mock_response = MagicMock()
+            mock_response.raise_for_status = MagicMock()
+
+            async def mock_aiter_lines():
+                yield 'data: {"id":"chunk1","choices":[{"delta":"Hi","finish_reason":null,"index":0}]}'
+                yield "data: [DONE]"
+
+            mock_response.aiter_lines = mock_aiter_lines
+
+            mock_client_context = MagicMock()
+            mock_client_context.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_client_context.__aexit__ = AsyncMock(return_value=None)
+
+            with patch.object(httpx.AsyncClient, "stream", return_value=mock_client_context):
+                chunks = []
+                async for chunk in provider.stream_completion(
+                    [Message(role="user", content="hi")],
+                    max_tokens=None,  # explicitly None
+                ):
+                    chunks.append(chunk)
+                assert len(chunks) == 1
 
 
 class TestFunctionToDict:

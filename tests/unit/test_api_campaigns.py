@@ -208,6 +208,33 @@ class TestDeleteCampaign:
         assert response.status_code == 204
         mock_adapter.delete_campaign.assert_called_once()
 
+    def test_get_campaign_returns_422_when_db_status_unknown(self, client, mock_adapter):
+        """DB row with unknown status value raises 422 via _campaign_to_response."""
+        campaign_id = uuid.uuid4()
+        row = make_campaign_row()
+        row["id"] = campaign_id
+        row["status"] = "deleted"  # not a valid CampaignStatus value
+        mock_adapter.get_campaign.return_value = row
+
+        response = client.get(f"/campaigns/{campaign_id}")
+
+        assert response.status_code == 422
+        assert "unknown status" in response.json()["detail"]
+
+    def test_get_campaign_returns_422_when_db_campaign_type_unknown(self, client, mock_adapter):
+        """DB row with unknown campaign_type value raises 422 via _campaign_to_response."""
+        campaign_id = uuid.uuid4()
+        row = make_campaign_row()
+        row["id"] = campaign_id
+        row["status"] = "active"
+        row["campaign_type"] = "disabled"  # not a valid CampaignType value
+        mock_adapter.get_campaign.return_value = row
+
+        response = client.get(f"/campaigns/{campaign_id}")
+
+        assert response.status_code == 422
+        assert "unknown campaign_type" in response.json()["detail"]
+
     def test_delete_campaign_not_found_returns_404(self, client, mock_adapter):
         """DELETE /campaigns/{id} returns 404 when campaign does not exist."""
         mock_adapter.get_campaign.return_value = None

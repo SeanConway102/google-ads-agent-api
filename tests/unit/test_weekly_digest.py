@@ -411,3 +411,105 @@ class TestAcquireLock:
         result = _acquire_lock(mock_lock_path)
 
         assert result is False
+
+    def test_returns_true_when_lock_pid_equals_current_pid(self):
+        """When lock file contains current PID, we overwrite it (pass branch)."""
+        from src.cron.weekly_digest import _acquire_lock
+        import src.cron.weekly_digest as wd
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = True
+        mock_lock_path.read_text.return_value = str(os.getpid())  # same PID → pass
+        mock_lock_path.parent.mkdir = MagicMock()
+        mock_lock_path.write_text = MagicMock()
+        result = _acquire_lock(mock_lock_path)
+
+        assert result is True
+        mock_lock_path.write_text.assert_called_once()
+
+    def test_returns_false_when_lock_read_raises_oserror(self):
+        """When lock file read raises OSError, we skip it and try to acquire lock."""
+        from src.cron.weekly_digest import _acquire_lock
+        import src.cron.weekly_digest as wd
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = True
+        mock_lock_path.read_text.side_effect = OSError("permission denied")
+        mock_lock_path.parent.mkdir = MagicMock()
+        mock_lock_path.write_text = MagicMock()
+        result = _acquire_lock(mock_lock_path)
+
+        assert result is True
+        mock_lock_path.write_text.assert_called_once()
+
+    def test_returns_false_when_lock_read_raises_valueerror(self):
+        """When lock file contains non-integer text, we skip it and try to acquire lock."""
+        from src.cron.weekly_digest import _acquire_lock
+        import src.cron.weekly_digest as wd
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = True
+        mock_lock_path.read_text.return_value = "not-a-number"
+        mock_lock_path.parent.mkdir = MagicMock()
+        mock_lock_path.write_text = MagicMock()
+        result = _acquire_lock(mock_lock_path)
+
+        assert result is True
+        mock_lock_path.write_text.assert_called_once()
+
+
+class TestReleaseLock:
+    """Tests for _release_lock()."""
+
+    def test_removes_lock_file_when_our_pid_matches(self):
+        """_release_lock removes the lock file when it contains our PID."""
+        from src.cron.weekly_digest import _release_lock
+        import src.cron.weekly_digest as wd
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = True
+        mock_lock_path.read_text.return_value = str(os.getpid())
+        mock_lock_path.unlink = MagicMock()
+        _release_lock(mock_lock_path)
+        mock_lock_path.unlink.assert_called_once()
+
+    def test_does_nothing_when_lock_file_does_not_exist(self):
+        """_release_lock does nothing when no lock file exists."""
+        from src.cron.weekly_digest import _release_lock
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = False
+        _release_lock(mock_lock_path)
+        mock_lock_path.unlink.assert_not_called()
+
+    def test_does_nothing_when_lock_pid_does_not_match_ours(self):
+        """_release_lock does nothing when lock file has a different PID."""
+        from src.cron.weekly_digest import _release_lock
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = True
+        mock_lock_path.read_text.return_value = str(os.getpid() + 9999)
+        _release_lock(mock_lock_path)
+        mock_lock_path.unlink.assert_not_called()
+
+    def test_does_not_crash_when_unlink_raises_oserror(self):
+        """_release_lock silently ignores OSError from unlink (e.g., file already deleted)."""
+        from src.cron.weekly_digest import _release_lock
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = True
+        mock_lock_path.read_text.return_value = str(os.getpid())
+        mock_lock_path.unlink.side_effect = OSError("file not found")
+        # Must not raise
+        _release_lock(mock_lock_path)
+        mock_lock_path.unlink.assert_called_once()
+
+    def test_does_not_crash_when_read_text_raises_oserror(self):
+        """_release_lock silently ignores OSError reading lock file."""
+        from src.cron.weekly_digest import _release_lock
+
+        mock_lock_path = MagicMock()
+        mock_lock_path.exists.return_value = True
+        mock_lock_path.read_text.side_effect = OSError("permission denied")
+        # Must not raise
+        _release_lock(mock_lock_path)
