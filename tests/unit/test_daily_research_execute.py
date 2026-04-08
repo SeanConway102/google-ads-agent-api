@@ -184,3 +184,104 @@ class TestExecuteAllowedActionsMixedProposals:
         mock_gads.remove_keywords.assert_called_once()
         mock_gads.update_keyword_bids.assert_called_once()
         mock_gads.update_keyword_match_types.assert_called_once()
+
+
+class TestExecuteAllowedActionsBidUpdateAlias:
+    """Test that 'bid_update' (coordinator naming) also calls update_keyword_bids."""
+
+    def test_bid_update_alias_calls_gads_client_update_keyword_bids(self):
+        """bid_update (coordinator output name) should call gads_client.update_keyword_bids."""
+        from src.cron.daily_research import _execute_allowed_actions
+
+        mock_gads = MagicMock()
+        mock_gads.update_keyword_bids = MagicMock(return_value=["customers/123/adGroups/456/criteria/789"])
+        guard = CapabilityGuard()
+        campaign = {"customer_id": "123"}
+
+        proposals = [{
+            "type": "bid_update",
+            "updates": [
+                {"resource_name": "customers/123/adGroups/456/criteria/789", "cpc_bid_micros": 150000},
+            ],
+        }]
+
+        _execute_allowed_actions(proposals, campaign, mock_gads, guard)
+
+        mock_gads.update_keyword_bids.assert_called_once_with(
+            customer_id="123",
+            updates=[{"resource_name": "customers/123/adGroups/456/criteria/789", "cpc_bid_micros": 150000}],
+        )
+
+    def test_bid_update_alias_empty_updates_returns_early(self):
+        """bid_update with empty updates should return early without calling client."""
+        from src.cron.daily_research import _execute_allowed_actions
+
+        mock_gads = MagicMock()
+        guard = CapabilityGuard()
+        campaign = {"customer_id": "123"}
+
+        _execute_allowed_actions([{"type": "bid_update", "updates": []}], campaign, mock_gads, guard)
+
+        mock_gads.update_keyword_bids.assert_not_called()
+
+
+class TestExecuteAllowedActionsMatchTypeUpdateAlias:
+    """Test that 'match_type_update' (coordinator naming) also calls update_keyword_match_types."""
+
+    def test_match_type_update_alias_calls_gads_client_update_keyword_match_types(self):
+        """match_type_update (coordinator output name) should call gads_client.update_keyword_match_types."""
+        from src.cron.daily_research import _execute_allowed_actions
+
+        mock_gads = MagicMock()
+        mock_gads.update_keyword_match_types = MagicMock(return_value=["customers/123/adGroups/456/criteria/789"])
+        guard = CapabilityGuard()
+        campaign = {"customer_id": "123"}
+
+        proposals = [{
+            "type": "match_type_update",
+            "updates": [
+                {"resource_name": "customers/123/adGroups/456/criteria/789", "match_type": "BROAD"},
+            ],
+        }]
+
+        _execute_allowed_actions(proposals, campaign, mock_gads, guard)
+
+        mock_gads.update_keyword_match_types.assert_called_once_with(
+            customer_id="123",
+            updates=[{"resource_name": "customers/123/adGroups/456/criteria/789", "match_type": "BROAD"}],
+        )
+
+    def test_match_type_update_alias_empty_updates_returns_early(self):
+        """match_type_update with empty updates should return early without calling client."""
+        from src.cron.daily_research import _execute_allowed_actions
+
+        mock_gads = MagicMock()
+        guard = CapabilityGuard()
+        campaign = {"customer_id": "123"}
+
+        _execute_allowed_actions([{"type": "match_type_update", "updates": []}], campaign, mock_gads, guard)
+
+        mock_gads.update_keyword_match_types.assert_not_called()
+
+
+class TestExecuteAllowedActionsUnknownType:
+    """Unknown proposal types are silently skipped (no error raised)."""
+
+    def test_unknown_proposal_type_does_not_raise(self):
+        """An unrecognized proposal type should silently skip without raising."""
+        from src.cron.daily_research import _execute_allowed_actions
+
+        mock_gads = MagicMock()
+        guard = CapabilityGuard()
+        campaign = {"customer_id": "123"}
+
+        # Should not raise — silently skipped
+        _execute_allowed_actions([{"type": "campaign_budget_update"}], campaign, mock_gads, guard)
+
+        # No client methods should be called
+        assert not mock_gads.add_keywords.called
+        assert not mock_gads.remove_keywords.called
+        assert not mock_gads.update_keyword_bids.called
+
+
+
